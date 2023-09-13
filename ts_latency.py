@@ -1,3 +1,3 @@
-from QSeisComP import QSeisComP
+from QSeisComP import Q_SC
 
-QSeisComP.stream_latency(save=True)
+Q_SC.stream_latency(save=True)
