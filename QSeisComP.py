@@ -216,8 +216,12 @@ def update_config():
                                        text=True, capture_output=True)
 
     if completed_process.returncode == 0:
-        print("Seiscomp configuration updated. Please restart the GUIs")
-
+        completed_process = subprocess.run("seiscomp restart", shell=True, env=current_env,
+                                           text=True, capture_output=True)
+        if completed_process.returncode == 0:
+            print("Seiscomp configuration updated. Please restart the GUIs")
+        else:
+            print("Seiscomp configuration updated. Please restart seiscomp service and the the GUIs")
     else:
         print("Error update seiscomp configuration. "
               "Please run 'seiscomp update-config' manually then restart the GUIs")
@@ -228,7 +232,7 @@ class QSeisComP:
     Additional SeisComP module for optimizing the monitoring and processing system
     by: eQ_Halauwet (yehezkiel.halauwet@bmkg.go.id)
 
-    usages: copy q_seiscomp dir to seiscomp/lib/python
+    :usages: copy q_seiscomp dir to seiscomp/lib/python
 
             register ts_latency to crontab:
                 crontab -e
@@ -521,11 +525,11 @@ class QSeisComP:
         :param dt_to: date to (YYYY-M-D H:m:s)
         :return: plot of latency time series
 
-        usages:   Q_SC.plot_ts_latency("STATION_CODE")
+        :usages:   Q_SC.plot_ts_latency("STATION_CODE")
 
-        :example: plot_ts_latency("AAI", "2023-8-29 00:00:00", "2023-8-30 00:01:00")  --> plot an hour data
-                  plot_ts_latency("AAI", "2023-8-20", "2023-8-30")  --> plot 10 days data
-                  plot_ts_latency("AAI")  --> plot all data
+        :example: Q_SC.plot_ts_latency("AAI", "2023-8-29 00:00:00", "2023-8-30 00:01:00")  --> plot an hour data
+                  Q_SC.plot_ts_latency("AAI", "2023-8-20", "2023-8-30")  --> plot 10 days data
+                  Q_SC.plot_ts_latency("AAI")  --> plot all data
         """
         group = None
         if dt_from is None:
@@ -583,7 +587,7 @@ class QSeisComP:
 
         :return: info about mismatch station, recommended configuration, and option to fix the configuration
 
-        usages:  Q_SC.check_existing_configuration()
+        :usages:  Q_SC.check_existing_configuration()
 
         """
         # if self.df_local_sts.empty:
@@ -603,6 +607,7 @@ class QSeisComP:
 
         :return:
         """
+        pd.options.mode.chained_assignment = None
         merged_df = self.df_local_sts.merge(self.df_seedlink_responses,
                                             on=['Network_code', 'Station_code', 'Location_code', 'Channel'],
                                             how='left')
@@ -614,15 +619,18 @@ class QSeisComP:
         error_detail = ""
         recomm_sts = []
         for i, r in error_sta.iterrows():
-            rec_sta = f'{r["Network_code"]}.{r["Station_code"]}.{r["Location_code"]}.{r["Channel"][:2]}'
+            err_sta = f'{r["Network_code"]}.{r["Station_code"]}.{r["Location_code"]}.{r["Channel"][:2]}'
             recomend_detail = ""
             recomend_sts = self.df_seedlink_responses[self.df_seedlink_responses['Station_code'] == r['Station_code']]
+            recomend_sts["Priority"] = (recomend_sts['Channel'].apply(assign_channel_priority))
             recomend_sts = recomend_sts[~recomend_sts['Init_Channel'].duplicated()]
+            recomend_sts = recomend_sts.sort_values(by='Priority', ascending=True)
+            recomend_sts = recomend_sts[recomend_sts['Priority'] != 'lower']
             found = False
             recom_sts = ""
             for ii, rr in recomend_sts.iterrows():
-                recomend_detail += (f"{rr['Network_code']}.{rr['Station_code']}.{rr['Location_code']}."
-                                    f"{rr['Init_Channel']}\n                    ")
+                recomend_detail += (f'"{rr["Network_code"]}.{rr["Station_code"]}.{rr["Location_code"]}.'
+                                    f'{rr["Init_Channel"]}"\n                    ')
                 if rr['Init_Channel'] == "SH" or rr['Init_Channel'] == "BH":
                     for item in recomm_sts:
                         if rr['Station_code'] in item:
@@ -632,8 +640,8 @@ class QSeisComP:
                         recom_sts = (f"{rr['Network_code']}.{rr['Station_code']}."
                                      f"{rr['Location_code']}.{rr['Init_Channel']}")
 
-            if rec_sta not in recomend_detail:
-                error_detail += (f'Station "{r["Network_code"]}.{r["Station_code"]}.{r["Location_code"]}.'
+            if err_sta not in recomend_detail:
+                error_detail += (f'\nStation "{r["Network_code"]}.{r["Station_code"]}.{r["Location_code"]}.'
                                  f'{r["Channel"][:2]}" is not available in seedlink stream. \n'
                                  f'Recommended stream: {recomend_detail}')
                 recomm_sts.append(recom_sts)
@@ -642,12 +650,17 @@ class QSeisComP:
 
     def add_station(self, full_id, use_amplitude=True, checked=False, iters=False):
         """
-        method to add station to scproc
+        method to add station/s to scproc
 
-        :param full_id: list of full station ID separated by a dot: NET.STA.LOC.CH
-        :param use_amplitude:
-        :param checked:
-        :param iters:
+        :param full_id: <list/string> full station ID separated by a dot: NET.STA.LOC.CH
+        :param use_amplitude: <bool> using amplitude in magnitude calculation
+        :param checked: <bool> already checked for seedlink availability
+        :param iters: <bool> set true if added simultaneously (update-config on last station add)
+
+        :usages:  Q_SC.add_station(["STATION_CODE"])
+
+        :example: Q_SC.add_station("IA.AAI..BH")  --> add a station
+                  Q_SC.add_station(["IA.AAI..BH", "IA.BNDI..BH"])  --> add several stations
         """
         if isinstance(full_id, string_types):
             full_id = [full_id]
@@ -849,7 +862,7 @@ class QSeisComP:
         :param alpha: concave parameter to estimate searching area based on alpha shape of existing stations
         :return:
 
-        usages:  Q_SC.check_existing_configuration()
+        :usages:  Q_SC.check_existing_configuration()
 
         """
         pd.options.mode.chained_assignment = None
@@ -1111,7 +1124,7 @@ class QSeisComP:
 Q_SC = QSeisComP()
 # Q_SC.plot_ts_latency("KRAI")
 # Q_SC.plot_ts_latency("WSTMM", "2023-8-29 00:00:00", "2023-8-30 00:01:00")
-# Q_SC.check_existing_configuration()
+#Q_SC.check_existing_configuration()
 # Q_SC.check_unexists_sts()
 # Q_SC.get_inventory("IA", "AAI")
 # Q_SC.compare_inventory("IA", "AAI")
