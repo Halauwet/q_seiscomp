@@ -7,11 +7,7 @@ import pandas as pd
 import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-
 from mpl_toolkits.basemap import Basemap
-from matplotlib.patches import Polygon as Polygon2
-# import seiscomp.kernel, seiscomp.config
-# from crontab import CronTab
 from glob import glob
 from six import string_types
 from shapely.geometry import Point
@@ -21,13 +17,37 @@ from datetime import timezone as tz
 # from obspy import read_inventory
 # from obspy.clients.fdsn.client import Client
 from scipy.spatial import Delaunay
-from os import getcwd, listdir, mkdir, environ, listdir
+from os import getcwd, mkdir, environ, listdir
 from os.path import join, exists
+
+
+def set_latency_unit(data_latency):
+    """
+    function to set latency y units based on max value
+    :param data_latency:
+    :return:
+    """
+    if max(data_latency) < 600:
+        units = 'seconds'
+        series = data_latency
+    elif max(data_latency) < 36000:
+        units = 'minutes'
+        series = data_latency / 60
+    elif max(data_latency) < 864000:
+        units = 'hours'
+        series = data_latency / 3600
+    elif max(data_latency) < 6048000:
+        units = 'days'
+        series = data_latency / 86400
+    else:
+        units = 'weeks'
+        series = data_latency / 604800
+    return series, units
 
 
 def parse_inventory(inv_path):
     """
-    Parse the XML Inventory file
+    function to parse the XML Inventory file
     :return: root element
     """
     try:
@@ -49,7 +69,7 @@ def get_element(root, elem_name):
 
 def compare_xml_elements(elem1, elem2):
     """
-    Compare two XML elements recursively
+    function to compare two XML elements recursively
     :param elem1:
     :param elem2:
     :return:
@@ -81,6 +101,11 @@ def compare_xml_elements(elem1, elem2):
 
 
 def assign_channel_priority(channel):
+    """
+    function to set channel priority to be added in scproc
+    :param channel:
+    :return:
+    """
     if 'SH' in channel:
         return 'High'
     elif 'BH' in channel:
@@ -93,7 +118,8 @@ def assign_channel_priority(channel):
 
 def alpha_shape(points, alpha, only_outer=True):
     """
-    Compute the alpha shape (concave hull) of a set of points.
+    Function to compute the alpha shape (concave hull) of a set of points.
+
     :param points: np.array of shape (n,2) points.
     :param alpha: alpha value.
     :param only_outer: boolean value to specify if we keep only the outer border
@@ -103,19 +129,19 @@ def alpha_shape(points, alpha, only_outer=True):
     """
     assert points.shape[0] > 3, "Need at least four points"
 
-    def add_edge(edges, i, j):
+    def add_edge(edgess, i, j):
         """
         Add an edge between the i-th and j-th points,
         if not in the list already
         """
-        if (i, j) in edges or (j, i) in edges:
+        if (i, j) in edgess or (j, i) in edgess:
             # already added
-            assert (j, i) in edges, "Can't go twice over same directed edge right?"
+            assert (j, i) in edgess, "Can't go twice over same directed edge right?"
             if only_outer:
                 # if both neighboring triangles are in shape, it's not a boundary edge
-                edges.remove((j, i))
+                edgess.remove((j, i))
             return
-        edges.add((i, j))
+        edgess.add((i, j))
 
     tri = Delaunay(points)
     edges = set()
@@ -178,6 +204,7 @@ def stitch_boundaries(edges):
 def update_config():
     """
     function to update the seiscomp configuration
+
     :return:
     """
 
@@ -198,26 +225,36 @@ def update_config():
 
 class QSeisComP:
     """
-    Additional SeisComP module for monitoring and processing system
+    Additional SeisComP module for optimizing the monitoring and processing system
     by: eQ_Halauwet (yehezkiel.halauwet@bmkg.go.id)
 
-    using: copy q_seiscomp dir to seiscomp/lib/python
-           register ts_latency to crontab:
+    usages: copy q_seiscomp dir to seiscomp/lib/python
+
+            register ts_latency to crontab:
                 crontab -e
-                */5 * * * * /home/sysop/anaconda3/bin/python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_latency.py > q_seiscomp.log 2>&1
+                */5 * * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_latency.py > q_seiscomp.log 2>&1
+
+            run 3 main function after load the class instance:
+                from q_seiscomp.QSeisComP import Q_SC
+
+                Q_SC.plot_ts_latency("STATION_CODE") --> to plot time series after register ts_latency to crontab
+                Q_SC.check_existing_configuration() --> to check and fix mismatch station configuration
+                Q_SC.check_unexists_sts() --> to check and add unexists station on scproc observation area
+
+    need additional package basemap and shapely: pip install pkgs
     """
 
     def __init__(self):
-        self.sc_version = 3
+        self.sc_version = 4
         self.sc_schema = "0.11"
 
-        # self.etc_dir = join(environ['HOME'], "seiscomp", "etc")
-        # self.slmon_ts_dir = join(environ['HOME'], "seiscomp", "var", "lib", "slmon_ts")
-        # self.lib_dir = join(environ['HOME'], "seiscomp", "lib", "python", "q_seiscomp")
-        # self.check_sc_version()
-        self.etc_dir = join(getcwd(), 'etc')
-        self.slmon_ts_dir = join(getcwd(), 'slmon_ts')
-        self.lib_dir = getcwd()
+        self.etc_dir = join(environ['HOME'], "seiscomp", "etc")
+        self.slmon_ts_dir = join(environ['HOME'], "seiscomp", "var", "lib", "slmon_ts")
+        self.lib_dir = join(environ['HOME'], "seiscomp", "lib", "python", "q_seiscomp")
+        self.check_sc_version()
+        # self.etc_dir = join(getcwd(), 'etc')
+        # self.slmon_ts_dir = join(getcwd(), 'slmon_ts')
+        # self.lib_dir = getcwd()
 
         self.key_dir = join(self.etc_dir, 'key')
         self.inv_dir = join(self.etc_dir, 'inventory')
@@ -242,7 +279,8 @@ class QSeisComP:
 
     def check_sc_version(self):
         """
-        function to get seiscomp version and data schema
+        method to get seiscomp version and data schema
+
         :return:
         """
 
@@ -266,9 +304,10 @@ class QSeisComP:
         else:
             print("Error get seiscomp configuration")
 
-    def get_active_stations(self):
+    def get_existing_stations(self):
         """
-        function to obtain active station on scproc (through read the stream_key)
+        method to obtain existing stations on scproc (through read the stream_key)
+
         :return:
         """
         sts_key_list = [file for file in listdir(self.key_dir) if file.startswith("station")]
@@ -295,7 +334,8 @@ class QSeisComP:
 
     def get_configured_hosts(self):
         """
-        function to obtain configured host, port, channel filter (through the seedlink profile key)
+        method to obtain configured host, port, channel filter (through the seedlink profile key)
+
         :return:
         """
         data_list = []
@@ -322,9 +362,74 @@ class QSeisComP:
         self.df_seedlink_servers = pd.DataFrame(data_list).drop_duplicates(subset=['Host', 'Port'])
         self.df_seedlink_servers = self.df_seedlink_servers.reset_index(drop=True)
 
+    def read_stream_key(self, key):
+        """
+        method to read the stream key
+
+        :return:
+        """
+        with open(join(self.key_dir, key), "r") as stream_key:
+            keys = stream_key.readlines()
+            if keys:
+                for l in keys:
+                    if "global" in l:
+                        l = l.strip().split(":")
+                        if len(l[1]) == 2:
+                            lc = ''
+                            ch = f"{l[1]}Z"
+                            ad = ''
+                        elif len(l[1]) == 4:
+                            if 'AD' in l[1]:
+                                lc = ''
+                                ch = f"{l[1][:2]}Z"
+                                ad = l[1][2:]
+                            else:
+                                lc = l[1][:2]
+                                ch = f"{l[1][2:]}Z"
+                                ad = ''
+                        else:
+                            lc = l[1][:2]
+                            ch = f"{l[1][2:4]}Z"
+                            ad = l[1][4:]
+                    if "seedlink" in l:
+                        if len(l.strip().split(":")) > 1:
+                            if l.strip().split(":")[1] not in self.sl_profiles:
+                                self.sl_profiles.append(l.strip().split(":")[1])
+                        else:
+                            self.sl_profiles.append(key)
+                        break
+            else:
+                return None, None, ""
+
+        return lc, ch, ad
+
+    def stream_latency(self, save=True):
+        """
+        method to obtain latency of the existing station on the scproc
+
+        :return:
+        """
+        # if self.df_local_sts.empty:
+        self.get_existing_stations()
+        self.get_configured_hosts()
+        self.run_slinktool()
+
+        self.df_seedlink_responses[['Latency', 'Latency_secs']] = self.df_seedlink_responses.apply(
+            lambda x: self.calc_latency(x['Buffer_end']), axis=1, result_type='expand')
+
+        self.df_local_sts = self.df_local_sts.merge(self.df_seedlink_responses,
+                                                    on=['Network_code', 'Station_code', 'Location_code', 'Channel'],
+                                                    how='left')
+        if save:
+            print(self.df_local_sts[['Network_code', 'Station_code', 'Location_code', 'Channel', 'Latency']])
+            self.write_ts_latency()
+        else:
+            print(self.df_local_sts[['Network_code', 'Station_code', 'Location_code', 'Channel', 'Latency']])
+
     def run_slinktool(self, filt_station=False):
         """
-        function to fetch the response from the slinktool
+        method to fetch the response from the slinktool
+
         :return:
         """
 
@@ -372,132 +477,21 @@ class QSeisComP:
                                                                                         'Location_code', 'Channel'])
         self.df_seedlink_responses = self.df_seedlink_responses.reset_index(drop=True)
 
-    def read_stream_key(self, key):
-        """
-        function to read the stream key
-        :return:
-        """
-        with open(join(self.key_dir, key), "r") as stream_key:
-            keys = stream_key.readlines()
-            if keys:
-                for l in keys:
-                    if "global" in l:
-                        l = l.strip().split(":")
-                        if len(l[1]) == 2:
-                            lc = ''
-                            ch = f"{l[1]}Z"
-                            ad = ''
-                        elif len(l[1]) == 4:
-                            if 'AD' in l[1]:
-                                lc = ''
-                                ch = f"{l[1][:2]}Z"
-                                ad = l[1][2:]
-                            else:
-                                lc = l[1][:2]
-                                ch = f"{l[1][2:]}Z"
-                                ad = ''
-                        else:
-                            lc = l[1][:2]
-                            ch = f"{l[1][2:4]}Z"
-                            ad = l[1][4:]
-                    if "seedlink" in l:
-                        if len(l.strip().split(":")) > 1:
-                            if l.strip().split(":")[1] not in self.sl_profiles:
-                                self.sl_profiles.append(l.strip().split(":")[1])
-                        else:
-                            self.sl_profiles.append(key)
-                        break
-            else:
-                return None, None, ""
-
-        return lc, ch, ad
-
-    def stream_latency(self, save=True):
-        """
-        function to obtain latency of the active station on the scproc
-        :return:
-        """
-        # if self.df_local_sts.empty:
-        self.get_active_stations()
-        self.get_configured_hosts()
-        self.run_slinktool()
-
-        self.df_seedlink_responses[['Latency', 'Latency_secs']] = self.df_seedlink_responses.apply(
-            lambda x: self.calc_latency(x['Buffer_end']), axis=1, result_type='expand')
-
-        self.df_local_sts = self.df_local_sts.merge(self.df_seedlink_responses,
-                                                    on=['Network_code', 'Station_code', 'Location_code', 'Channel'],
-                                                    how='left')
-        if save:
-            print(self.df_local_sts[['Network_code', 'Station_code', 'Location_code', 'Channel', 'Latency']])
-            self.write_ts_latency()
-        else:
-            print(self.df_local_sts[['Network_code', 'Station_code', 'Location_code', 'Channel', 'Latency']])
-
-    def check_existing_configuration(self):
-        """
-        function to match configured stations on scproc with active stream on the seedlink
-        :print: mismatch station and recommended configuration
-        """
-        # if self.df_local_sts.empty:
-        self.get_active_stations()
-        if self.df_seedlink_responses.empty:
-            self.get_configured_hosts()
-            self.run_slinktool()
-        error, list_recom = self.check_station()
-        print(error)
-        add_sts = input("Fixed current configuration? ([Y]/N)") or "Y"
-        if add_sts == 'Y' or add_sts == 'y':
-            self.add_station(list_recom, checked=True)
-
-    def check_station(self):
-        merged_df = self.df_local_sts.merge(self.df_seedlink_responses,
-                                            on=['Network_code', 'Station_code', 'Location_code', 'Channel'],
-                                            how='left')
-
-        error_sta = merged_df[merged_df['Buffer_start'].isna()]
-
-        self.df_seedlink_responses['Init_Channel'] = self.df_seedlink_responses['Channel'].str[:2]
-
-        error_detail = ""
-        recomm_sts = []
-        for i, r in error_sta.iterrows():
-            recomend_detail = ""
-            recomend_sts = self.df_seedlink_responses[self.df_seedlink_responses['Station_code'] == r['Station_code']]
-            recomend_sts = recomend_sts[~recomend_sts['Init_Channel'].duplicated()]
-            found = False
-            recom_sts = ""
-            for ii, rr in recomend_sts.iterrows():
-                recomend_detail += (f"{rr['Network_code']}.{rr['Station_code']}.{rr['Location_code']}."
-                                    f"{rr['Init_Channel']}\n                    ")
-                if rr['Init_Channel'] == "SH" or rr['Init_Channel'] == "BH":
-                    for item in recomm_sts:
-                        if rr['Station_code'] in item:
-                            found = True
-                            break
-                    if not found:
-                        recom_sts = f"{rr['Network_code']}.{rr['Station_code']}.{rr['Location_code']}.{rr['Init_Channel']}"
-
-            if f'{r["Network_code"]}.{r["Station_code"]}.{r["Location_code"]}.{r["Channel"][:2]}' not in recomend_detail:
-                error_detail += (f'Station "{r["Network_code"]}.{r["Station_code"]}.{r["Location_code"]}.'
-                                 f'{r["Channel"][:2]}" is not available in seedlink stream. \n'
-                                 f'Recommended stream: {recomend_detail}')
-                recomm_sts.append(recom_sts)
-
-        return error_detail, recomm_sts
-
     def calc_latency(self, end_buffer):
         """
-        function to calculate the latency data
+        method to calculate the latency data
+
         :return: latency in datetime format and seconds unit
         """
+
         self.current_time = current_time = dt.now(tz.utc).replace(tzinfo=None)
         end_buffer = pd.to_datetime(end_buffer).to_pydatetime()
         return (current_time - end_buffer), (current_time - end_buffer).total_seconds()
 
     def write_ts_latency(self):
         """
-        function to store calculated latencies to each station time series data in self.slmon_ts_dir directory
+        method to store calculated latencies to time series data in self.slmon_ts_dir directory
+
         :output: time series latency data
         """
         for i, r in self.df_local_sts.iterrows():
@@ -507,6 +501,7 @@ class QSeisComP:
             latency_data = (f'{self.current_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\t'
                             f'{self.current_time.timestamp()}\t'
                             f'{r["Latency"]}\t{r["Latency_secs"]}')
+            # latency_data = f'{self.current_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\t{r["Latency_secs"]}'
 
             if exists(sts_ts_latency):  # write finished event to finished catalog
                 with open(sts_ts_latency, 'a') as f:
@@ -514,21 +509,25 @@ class QSeisComP:
             else:
                 with open(sts_ts_latency, 'w') as f:
                     f.write(f'Timestamp\tTimestamp(sec)\tLatency\tLatency(sec)\n{latency_data}\n')
+                    # f.write(f'Timestamp\tLatency(sec)\n{latency_data}\n')
         print(f'Latency data written to: {self.slmon_ts_dir}')
 
-    def plot_ts_latency(self, station, dt_from=None, dt_to=None, group=""):
+    def plot_ts_latency(self, station, dt_from=None, dt_to=None):
         """
-        plot time series of latency data
-
-        usages: from q_seiscomp.QSeisComP import Q_SC
-                Q_SC.plot_ts_latency("station_name")
+        method to plot time series of latency data
 
         :param station: station code
-        :param dt_from: date from (YYYY-M-D)
-        :param dt_to: date to (YYYY-M-D)
-        :param group: barchart group D/M
+        :param dt_from: date from (YYYY-M-D H:m:s)
+        :param dt_to: date to (YYYY-M-D H:m:s)
         :return: plot of latency time series
+
+        usages:   Q_SC.plot_ts_latency("STATION_CODE")
+
+        :example: plot_ts_latency("AAI", "2023-8-29 00:00:00", "2023-8-30 00:01:00")  --> plot an hour data
+                  plot_ts_latency("AAI", "2023-8-20", "2023-8-30")  --> plot 10 days data
+                  plot_ts_latency("AAI")  --> plot all data
         """
+        group = None
         if dt_from is None:
             dt_from = dt(1970, 1, 1, 0, 0, 0)
         else:
@@ -550,13 +549,19 @@ class QSeisComP:
             if group:
                 df['Latency(sec)'].resample(group).sum().plot(kind='bar')
                 ax.set_title('Daily Bar Chart')
-                ax.set_xlabel('Day')
+                if group == 'D':
+                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%M-%d'))
+                    ax.set_xlabel('Day')
+                else:
+                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+                    ax.set_xlabel('Month')
                 ax.set_ylabel('Latency (s)')
-                plt.show()
+                plt.show(block=False)
             else:
+                latency_plot, unit = set_latency_unit(df['Latency(sec)'])
                 td_hours = (df.index[-1] - df.index[0]).total_seconds() / 3600
                 td_mins = (df.index[-1] - df.index[0]).total_seconds() / 60
-                df['Latency(sec)'].plot()
+                latency_plot.plot()
                 ax.set_title(f'Station {station} Latency Time Series')
                 ax.set_xlabel('Time')
                 # ax.plot(df.index, [time.strftime('%Y-%m-%d %H:%M:%S') for time in df.index], rotation=90)
@@ -566,15 +571,79 @@ class QSeisComP:
                 else:
                     ax.xaxis.set_major_locator(mdates.HourLocator(interval=int(td_hours / 10)))
                     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))  # Format as desired
-                ax.set_ylabel('Latency (s)')
-                plt.show()
+                ax.set_ylabel(f'Latency ({unit})')
+                plt.show(block=False)
 
         else:
             print(f"Station data not found on {self.slmon_ts_dir}")
 
+    def check_existing_configuration(self):
+        """
+        method to match configured stations on scproc with active stream on the seedlink
+
+        :return: info about mismatch station, recommended configuration, and option to fix the configuration
+
+        usages:  Q_SC.check_existing_configuration()
+
+        """
+        # if self.df_local_sts.empty:
+        self.get_existing_stations()
+        if self.df_seedlink_responses.empty:
+            self.get_configured_hosts()
+            self.run_slinktool()
+        error, list_recom = self.check_station()
+        print(error)
+        add_sts = input("Fix current configuration? ([Y]/N)") or "Y"
+        if add_sts == 'Y' or add_sts == 'y':
+            self.add_station(list_recom, checked=True)
+
+    def check_station(self):
+        """
+        method to check a station configuration is match with seedlink
+
+        :return:
+        """
+        merged_df = self.df_local_sts.merge(self.df_seedlink_responses,
+                                            on=['Network_code', 'Station_code', 'Location_code', 'Channel'],
+                                            how='left')
+
+        error_sta = merged_df[merged_df['Buffer_start'].isna()]
+
+        self.df_seedlink_responses['Init_Channel'] = self.df_seedlink_responses['Channel'].str[:2]
+
+        error_detail = ""
+        recomm_sts = []
+        for i, r in error_sta.iterrows():
+            rec_sta = f'{r["Network_code"]}.{r["Station_code"]}.{r["Location_code"]}.{r["Channel"][:2]}'
+            recomend_detail = ""
+            recomend_sts = self.df_seedlink_responses[self.df_seedlink_responses['Station_code'] == r['Station_code']]
+            recomend_sts = recomend_sts[~recomend_sts['Init_Channel'].duplicated()]
+            found = False
+            recom_sts = ""
+            for ii, rr in recomend_sts.iterrows():
+                recomend_detail += (f"{rr['Network_code']}.{rr['Station_code']}.{rr['Location_code']}."
+                                    f"{rr['Init_Channel']}\n                    ")
+                if rr['Init_Channel'] == "SH" or rr['Init_Channel'] == "BH":
+                    for item in recomm_sts:
+                        if rr['Station_code'] in item:
+                            found = True
+                            break
+                    if not found:
+                        recom_sts = (f"{rr['Network_code']}.{rr['Station_code']}."
+                                     f"{rr['Location_code']}.{rr['Init_Channel']}")
+
+            if rec_sta not in recomend_detail:
+                error_detail += (f'Station "{r["Network_code"]}.{r["Station_code"]}.{r["Location_code"]}.'
+                                 f'{r["Channel"][:2]}" is not available in seedlink stream. \n'
+                                 f'Recommended stream: {recomend_detail}')
+                recomm_sts.append(recom_sts)
+
+        return error_detail, recomm_sts
+
     def add_station(self, full_id, use_amplitude=True, checked=False, iters=False):
         """
-        Add station to scproc
+        method to add station to scproc
+
         :param full_id: list of full station ID separated by a dot: NET.STA.LOC.CH
         :param use_amplitude:
         :param checked:
@@ -615,7 +684,8 @@ class QSeisComP:
 
     def get_inventory(self, network, station):
         """
-        Get updated metadata
+        method to get updated metadata
+
         :param network:
         :param station:
         :return:
@@ -641,15 +711,23 @@ class QSeisComP:
 
                 with open(local_inv, "w") as output_inv:
                     output_inv.write(modified_content)
-                print(f"Inventory is downloaded and modified to seiscomp {self.sc_version} scheme saved at {local_inv}")
+                print(f"\nInventory is downloaded and modified to seiscomp {self.sc_version},"
+                      f" scheme saved at {local_inv}")
             else:
                 with open(local_inv, 'wb') as file:
                     file.write(response.content)
-                print(f"Inventory is downloaded to {local_inv}")
+                print(f"\nInventory is downloaded to {local_inv}")
         else:
             print(f"Failed to download the {network}.{station} inventory. Status code: {response.status_code}")
 
     def compare_inventory(self, network, station):
+        """
+        method to check if two inventory is match or there is an update
+
+        :param network:
+        :param station:
+        :return:
+        """
 
         inv1_path = join(self.inv_dir, f"{network}.{station}.xml")
         inv2_path = join(self.inv_dir, "update", f"{network}.{station}.xml")
@@ -667,6 +745,13 @@ class QSeisComP:
             print("One or both XML files could not be parsed.")
 
     def update_inventory(self, network, station):
+        """
+        method to update scproc inventory (preserve old inventory)
+
+        :param network:
+        :param station:
+        :return:
+        """
         old_inv_dir = join(self.inv_dir, "old")
 
         if not exists(old_inv_dir):
@@ -707,6 +792,17 @@ class QSeisComP:
             print(f"An error occurred: {e}")
 
     def write_key(self, network, station, location, channel, use_amplitude, sta_SL_profile=False):
+        """
+        method to write key to scproc
+
+        :param network:
+        :param station:
+        :param location:
+        :param channel:
+        :param use_amplitude:
+        :param sta_SL_profile:
+        :return:
+        """
         key_path = join(self.key_dir, f"station_{network}_{station}")
 
         amp = "" if use_amplitude else "AD"
@@ -744,10 +840,187 @@ class QSeisComP:
                 f.write(f"seedlink:pst_{location}{channel}\n")
             f.write("slarchive:default_30d\n")
             f.write("access\n")
-        print(f'Key "station_{network}_{station}" is written')
+        print(f'Key "station_{network}_{station}" is written\n')
+
+    def check_unexists_sts(self, alpha=6):
+        """
+        method to detect unexisted station on scproc and automatically configured it
+
+        :param alpha: concave parameter to estimate searching area based on alpha shape of existing stations
+        :return:
+
+        usages:  Q_SC.check_existing_configuration()
+
+        """
+        pd.options.mode.chained_assignment = None
+
+        local_coord = self.read_local_coordinate()
+        server_coord = self.read_server_coordinate()
+
+        server_coord_filt = server_coord[~server_coord['Station_code'].isin(local_coord['Station_code'])]
+        server_coord_filt["Location_code"] = server_coord_filt["Location_code"].copy().fillna('')
+
+        sts_locs = local_coord[['Station_lon', 'Station_lat']].values
+
+        # min_x = local_coord['Station_lon'].min()
+        # max_x = local_coord['Station_lon'].max()
+        # min_y = local_coord['Station_lat'].min()
+        # max_y = local_coord['Station_lat'].max()
+
+        llon = 90
+        rlon = 150
+        blat = -18
+        ulat = 12
+        margin_area = []
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        while alpha != 'Y':
+
+            if alpha == 'y':
+                break
+            try:
+                alpha = float(alpha)
+            except ValueError:
+                sys.exit(1)
+
+            margin_area = []
+
+            area_edges = alpha_shape(sts_locs, alpha=alpha, only_outer=True)
+            area_edges = stitch_boundaries(area_edges)
+
+            for i, j in area_edges[0]:
+                margin_area.append((sts_locs[[i, j], 0][0], sts_locs[[i, j], 1][0]))
+                margin_area.append((sts_locs[[i, j], 0][1], sts_locs[[i, j], 1][1]))
+
+            lons = [item[0] for item in margin_area]
+            lats = [item[1] for item in margin_area]
+
+            llon = min(lons)-((max(lons)-min(lons))/15)
+            rlon = max(lons)+((max(lons)-min(lons))/15)
+            blat = min(lats)-((max(lats)-min(lats))/15)
+            ulat = max(lats)+((max(lats)-min(lats))/15)
+
+            # Create a Basemap instance with a specific projection (e.g., Mercator)
+            m = Basemap(projection='merc', llcrnrlat=blat, urcrnrlat=ulat,
+                        llcrnrlon=llon, urcrnrlon=rlon, resolution='l')
+            m.drawcoastlines()
+            m.fillcontinents(color='lightgray', lake_color='aqua')
+            m.scatter(sts_locs[:, 0], sts_locs[:, 1], latlon=True, marker='v', color='red',
+                      label='Existing Stations')
+
+            x, y = m(lons, lats)
+            m.plot(x, y, marker=None, linewidth=0.7, color='blue', linestyle='dashed', label="Searching area")
+            m.drawparallels(range(-90, 91, 5), labels=[1, 0, 0, 1], fontsize=12, fontweight='bold')
+            m.drawmeridians(range(-180, 181, 5), labels=[1, 0, 0, 1], fontsize=12, fontweight='bold')
+
+            # ax.set_xlabel("Longitude")
+            # ax.set_ylabel("Latitude")
+            plt.legend()
+            plt.ion()
+            plt.show(block=False)
+
+            alpha = input("Check on current area? (Y/new_alpha)\n"
+                          f"Set smaller alpha to ignore outlier far station and vice versa (current alpha = {alpha})\n")
+
+            fig.clf()
+
+        # Create a Polygon object from the local stst area
+        polygon_area = Polygon(margin_area)
+
+        # Check if the server remaining sts is inside the polygon
+        recomm_sts = []
+        recomm_sts_loc = np.empty([0, 2])
+        for i, r in server_coord_filt.iterrows():
+            point = Point((float(r["Station_lon"]), float(r["Station_lat"])))
+            is_inside = polygon_area.contains(point)
+
+            if is_inside:
+                recomm_sts.append(f"{r['Network_code']}.{r['Station_code']}.{r['Location_code']}.{r['Init_Channel']}")
+                recomm_sts_loc = np.append(recomm_sts_loc,
+                                           [np.array([float(r["Station_lon"]), float(r["Station_lat"])])], axis=0)
+
+        m = Basemap(projection='merc', llcrnrlat=blat, urcrnrlat=ulat,
+                    llcrnrlon=llon, urcrnrlon=rlon, resolution='l')
+        m.drawcoastlines()
+        m.fillcontinents(color='lightgray', lake_color='aqua')
+        m.scatter(sts_locs[:, 0], sts_locs[:, 1], latlon=True, marker='v', color='red', label='Existing Stations')
+        m.scatter(recomm_sts_loc[:, 0], recomm_sts_loc[:, 1], latlon=True,
+                  marker='v', color='blue', label='New Stations')
+        m.drawparallels(range(-90, 91, 5), labels=[1, 0, 0, 1], fontsize=12, fontweight='bold')
+        m.drawmeridians(range(-180, 181, 5), labels=[1, 0, 0, 1], fontsize=12, fontweight='bold')
+
+        xs, ys = m(recomm_sts_loc[:, 0], recomm_sts_loc[:, 1])
+        for sts, stslon, stslat in zip(recomm_sts, xs, ys):
+            plt.text(stslon, stslat, sts.split('.')[1], fontsize=7.5, ha='center', va='bottom', color='k', weight='bold')
+        # ax.set_xlabel("Longitude")
+        # ax.set_ylabel("Latitude")
+        plt.legend()
+        plt.show(block=False)
+
+        print(f"There are {len(recomm_sts)} new stations that can be added:")
+        division = int(len(recomm_sts)/10) if len(recomm_sts) > 10 else 1
+        for i, item in enumerate(recomm_sts):
+            print(item.ljust(15), end='\n' if (i + 1) % division == 0 else ' ')
+
+        print("\nHow do you want to add the new stations:")
+        print("1. Check and add station one by one [default]")
+        print("2. Add all stations directly")
+        print("3. Cancel")
+
+        choice = input("") or '1'
+
+        fig.clf()
+
+        if choice == '1':
+            for sta, loc in zip(recomm_sts, recomm_sts_loc):
+
+                m = Basemap(projection='merc', llcrnrlat=loc[1] - 5, urcrnrlat=loc[1] + 5,
+                            llcrnrlon=loc[0] - 6, urcrnrlon=loc[0] + 6, resolution='l')
+                m.drawcoastlines()
+                m.fillcontinents(color='lightgray', lake_color='aqua')
+                m.scatter(sts_locs[:, 0], sts_locs[:, 1], latlon=True, marker='v', color='red',
+                          label='Existing Stations')
+                m.scatter(loc[0], loc[1], latlon=True,
+                          marker='v', color='blue', label=f'New Station "{sta}"')
+                xx, yy = m(loc[0], loc[1])
+                plt.text(xx, yy, sta.split('.')[1], fontsize=10, ha='center', va='bottom', color='k',
+                         weight='bold')
+                m.drawparallels(range(-90, 91, 5), labels=[1, 0, 0, 1], fontsize=12, fontweight='bold')
+                m.drawmeridians(range(-180, 181, 5), labels=[1, 0, 0, 1], fontsize=12, fontweight='bold')
+                # ax.set_xlabel("Longitude")
+                # ax.set_ylabel("Latitude")
+                plt.legend(loc='upper right')
+                plt.show(block=False)
+
+                add_sts = input(f"Add station {sta}? ([Y]/N/X for cancel)") or "Y"
+                if add_sts == 'Y' or add_sts == 'y':
+                    self.add_station(sta, checked=True, iters=True)
+                if add_sts == 'X' or add_sts == 'x':
+                    plt.ioff()
+                    plt.close()
+                    sys.exit(1)
+                fig.clf()
+            plt.ioff()
+            plt.close()
+            update_config()
+        elif choice == '2':
+            self.add_station(recomm_sts, checked=True)
+        elif choice == '3':
+            print("Canceling...")
+            plt.ioff()
+            plt.close()
+            # update_config()
+        else:
+            print("Invalid choice. Canceling...")
+            plt.ioff()
+            plt.close()
 
     def read_local_coordinate(self):
+        """
+        method to get existing scproc station location information
 
+        :return:
+        """
         if exists(join(self.tmp_dir, 'local_coord.csv')):
             sts_list = pd.read_csv(join(self.tmp_dir, 'local_coord.csv'))
         else:
@@ -778,7 +1051,9 @@ class QSeisComP:
         return sts_list
 
     def read_server_coordinate(self):
-
+        """
+        method to get seedlink station location information
+        """
         if exists(join(self.tmp_dir, 'server_coord.csv')):
             sts_list = pd.read_csv(join(self.tmp_dir, 'server_coord.csv'))
         # elif exists(join(self.tmp_dir, 'local_coord.csv')):
@@ -832,171 +1107,13 @@ class QSeisComP:
 
         return sts_list
 
-    def check_inactive_sts(self, alpha=6):
-        local_coord = self.read_local_coordinate()
-        server_coord = self.read_server_coordinate()
 
-        server_coord_filt = server_coord[~server_coord['Station_code'].isin(local_coord['Station_code'])]
-        server_coord_filt["Location_code"] = server_coord_filt["Location_code"].fillna('')
-        sts_locs = local_coord[['Station_lon', 'Station_lat']].values
-
-        margin_area = []
-        llon = 90
-        rlon = 150
-        blat = -18
-        ulat = 12
-        while alpha != 'Y':
-
-            if alpha == 'y':
-                break
-            try:
-                alpha = float(alpha)
-            except ValueError:
-                sys.exit(1)
-
-            margin_area = []
-
-            area_edges = alpha_shape(sts_locs, alpha=alpha, only_outer=True)
-            area_edges = stitch_boundaries(area_edges)
-
-            plt.figure()
-            # plt.plot(sts_locs[:, 0], sts_locs[:, 1], marker='v', linestyle='None')
-
-            for i, j in area_edges[0]:
-                # plt.plot(sts_locs[[i, j], 0], sts_locs[[i, j], 1])
-                margin_area.append((sts_locs[[i, j], 0][0], sts_locs[[i, j], 1][0]))
-                margin_area.append((sts_locs[[i, j], 0][1], sts_locs[[i, j], 1][1]))
-
-            lons = [item[0] for item in margin_area]
-            lats = [item[1] for item in margin_area]
-
-            llon = min(lons)-((max(lons)-min(lons))/15)
-            rlon = max(lons)+((max(lons)-min(lons))/15)
-            blat = min(lats)-((max(lats)-min(lats))/15)
-            ulat = max(lats)+((max(lats)-min(lats))/15)
-
-            # Create a Basemap instance with a specific projection (e.g., Mercator)
-            m = Basemap(projection='merc', llcrnrlat=blat, urcrnrlat=ulat,
-                          llcrnrlon=llon, urcrnrlon=rlon, resolution='l')
-            m.drawcoastlines()
-            m.fillcontinents(color='lightgray', lake_color='aqua')
-            m.scatter(sts_locs[:, 0], sts_locs[:, 1], latlon=True, marker='v', color='red',
-                      label='Existing Stations')
-
-            x, y = m(lons, lats)
-            m.plot(x, y, marker=None, linewidth=0.7, color='blue', linestyle='dashed', label="Searching area")
-
-            # m.set_xlim([llon, rlon])
-            # m.set_ylim([blat, ulat])
-            plt.xlabel("Longitude")
-            plt.ylabel("Latitude")
-            plt.legend()
-
-            plt.show()
-
-            alpha = input("Check on current area? (Y/new alpha)\n"
-                          f"Set smaller alpha to ignore outlier far station and vice versa (current alpha = {alpha})\n")
-
-            plt.clf()
-            plt.close()
-
-        # min_x = local_coord['Station_lon'].min()
-        # max_x = local_coord['Station_lon'].max()
-        # min_y = local_coord['Station_lat'].min()
-        # max_y = local_coord['Station_lat'].max()
-
-        # Create a Polygon object from the local stst area
-        polygon_area = Polygon(margin_area)
-
-        # Check if the server remaining sts is inside the polygon
-        recomm_sts = []
-        recomm_sts_loc = np.empty([0, 2])
-        for i, r in server_coord_filt.iterrows():
-            point = Point((float(r["Station_lon"]), float(r["Station_lat"])))
-            is_inside = polygon_area.contains(point)
-
-            if is_inside:
-                recomm_sts.append(f"{r['Network_code']}.{r['Station_code']}.{r['Location_code']}.{r['Init_Channel']}")
-                recomm_sts_loc = np.append(recomm_sts_loc,
-                                           [np.array([float(r["Station_lon"]), float(r["Station_lat"])])], axis=0)
-
-        fig, ax = plt.subplots()
-
-        m = Basemap(projection='merc', llcrnrlat=blat, urcrnrlat=ulat,
-                    llcrnrlon=llon, urcrnrlon=rlon, resolution='l')
-        m.drawcoastlines()
-        m.fillcontinents(color='lightgray', lake_color='aqua')
-        m.scatter(sts_locs[:, 0], sts_locs[:, 1], latlon=True, marker='v', color='red', label='Existing Stations')
-        m.scatter(recomm_sts_loc[:, 0], recomm_sts_loc[:, 1], latlon=True,
-                  marker='v', color='blue', label='New Stations')
-
-        xs, ys = m(recomm_sts_loc[:, 0], recomm_sts_loc[:, 1])
-        for sts, stslon, stslat in zip(recomm_sts, xs, ys):
-            ax.annotate(sts.split('.')[1], xy=(stslon, stslat), xytext=(5, 5), ha='center',
-                        textcoords='offset points', fontsize=8)
-        # x, y = m(lons, lats)
-        # m.plot(x, y, marker=None, linewidth=0.7, color='blue', linestyle='dashed', label="Searching area")
-        # m.set_xlim([llon, rlon])
-        # m.set_ylim([blat, ulat])
-        plt.xlabel("Longitude")
-        plt.ylabel("Latitude")
-        plt.legend()
-        plt.show()
-
-        print(f"There are {len(recomm_sts)} new stations that can be added:")
-        division = int(len(recomm_sts)/10) if len(recomm_sts) > 10 else 1
-        for i, item in enumerate(recomm_sts):
-            print(item.ljust(15), end='\n' if (i + 1) % division == 0 else ' ')
-
-        print("\nHow do you want to add the new stations:")
-        print("1. Check and add station one by one [default]")
-        print("2. Add all stations directly")
-        print("3. Cancel")
-
-        choice = input("") or '1'
-
-        if choice == '1':
-            for sta, loc in zip(recomm_sts, recomm_sts_loc):
-                fig, ax = plt.subplots()
-
-                m = Basemap(projection='merc', llcrnrlat=blat, urcrnrlat=ulat,
-                            llcrnrlon=llon, urcrnrlon=rlon, resolution='l')
-                m.drawcoastlines()
-                m.fillcontinents(color='lightgray', lake_color='aqua')
-                m.scatter(loc[0], loc[1], latlon=True,
-                          marker='v', color='blue', label='New Stations')
-                xs, ys = m(loc[0], loc[1])
-                ax.annotate(sta.split('.')[1], xy=(xs, ys), xytext=(5, 5), ha='center',
-                            textcoords='offset points', fontsize=8)
-                plt.xlabel("Longitude")
-                plt.ylabel("Latitude")
-                plt.legend()
-                plt.show()
-
-                add_sts = input(f"Add station {sta}? ([Y]/N/X for cancel)") or "Y"
-                if add_sts == 'Y' or add_sts == 'y':
-                    self.add_station(sta, checked=True, iters=True)
-                if add_sts == 'X' or add_sts == 'x':
-                    sys.exit(1)
-                plt.clf()
-                plt.close()
-            update_config()
-        elif choice == '2':
-            self.add_station(recomm_sts, checked=True)
-        elif choice == '3':
-            print("Canceling...")
-        else:
-            print("Invalid choice. Canceling...")
-
-
-# todo: read xml without obspy
 Q_SC = QSeisComP()
-# Q_SC.check_existing_configuration()
-# Q_SC.read_sts_coordinate()
-# Q_SC.check_inactive_sts()
 # Q_SC.plot_ts_latency("KRAI")
+# Q_SC.plot_ts_latency("WSTMM", "2023-8-29 00:00:00", "2023-8-30 00:01:00")
+# Q_SC.check_existing_configuration()
+# Q_SC.check_unexists_sts()
 # Q_SC.get_inventory("IA", "AAI")
 # Q_SC.compare_inventory("IA", "AAI")
 # Q_SC.update_inventory("IA", "AAI")
-# Q_SC.add_station("IA.BNDI..SH")
-# Q_SC.check_inactive_sts()
+# Q_SC.add_station("IA.AAI..SH")
