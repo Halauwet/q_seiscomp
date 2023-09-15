@@ -23,7 +23,7 @@ from os.path import join, exists
 
 def set_latency_unit(data_latency):
     """
-    function to set latency y units based on max value
+    Function to set latency y units based on max value
     :param data_latency:
     :return:
     """
@@ -45,9 +45,26 @@ def set_latency_unit(data_latency):
     return series, units
 
 
+def set_plot_nrows_ncols(num_plots, max_row=8):
+
+    if num_plots > 24:
+        print("Maximal plot is 24 stations. Only first 24 stations were plotted")
+        num_plots = 24
+    if num_plots > 2 * max_row:
+        num_cols = 3
+        num_rows = num_plots - int(2 * num_plots / num_cols)
+    elif num_plots > max_row:
+        num_cols = 2
+        num_rows = num_plots - int(num_plots / num_cols)
+    else:
+        num_cols = 1
+        num_rows = num_plots
+    return num_rows, num_cols
+
+
 def parse_inventory(inv_path):
     """
-    function to parse the XML Inventory file
+    Function to parse the XML Inventory file
     :return: root element
     """
     try:
@@ -69,7 +86,7 @@ def get_element(root, elem_name):
 
 def compare_xml_elements(elem1, elem2):
     """
-    function to compare two XML elements recursively
+    Function to compare two XML elements recursively
     :param elem1:
     :param elem2:
     :return:
@@ -102,7 +119,7 @@ def compare_xml_elements(elem1, elem2):
 
 def assign_channel_priority(channel):
     """
-    function to set channel priority to be added in scproc
+    Function to set channel priority to be added in scproc
     :param channel:
     :return:
     """
@@ -201,32 +218,6 @@ def stitch_boundaries(edges):
     return boundary_lst
 
 
-def update_config():
-    """
-    function to update the seiscomp configuration
-
-    :return:
-    """
-
-    current_env = environ.copy()
-    additional_paths = ['/home/sysop/seiscomp/bin/']
-    current_env['PATH'] = ":".join(additional_paths + [current_env.get('PATH', '')])
-
-    completed_process = subprocess.run("seiscomp update-config", shell=True, env=current_env,
-                                       text=True, capture_output=True)
-
-    if completed_process.returncode == 0:
-        completed_process = subprocess.run("seiscomp restart", shell=True, env=current_env,
-                                           text=True, capture_output=True)
-        if completed_process.returncode == 0:
-            print("Seiscomp configuration updated. Please restart the GUIs")
-        else:
-            print("Seiscomp configuration updated. Please restart seiscomp service and the the GUIs")
-    else:
-        print("Error update seiscomp configuration. "
-              "Please run 'seiscomp update-config' manually then restart the GUIs")
-
-
 class QSeisComP:
     """
     Additional SeisComP module for optimizing the monitoring and processing system
@@ -283,9 +274,7 @@ class QSeisComP:
 
     def check_sc_version(self):
         """
-        method to get seiscomp version and data schema
-
-        :return:
+        Method to get seiscomp version and data schema
         """
 
         current_env = environ.copy()
@@ -310,9 +299,7 @@ class QSeisComP:
 
     def get_existing_stations(self):
         """
-        method to obtain existing stations on scproc (through read the stream_key)
-
-        :return:
+        Method to obtain existing stations on scproc (through read the stream_key)
         """
         sts_key_list = [file for file in listdir(self.key_dir) if file.startswith("station")]
 
@@ -338,9 +325,7 @@ class QSeisComP:
 
     def get_configured_hosts(self):
         """
-        method to obtain configured host, port, channel filter (through the seedlink profile key)
-
-        :return:
+        Method to obtain configured host, port, channel filter (through the seedlink profile key)
         """
         data_list = []
         for profile in self.sl_profiles:
@@ -368,9 +353,7 @@ class QSeisComP:
 
     def read_stream_key(self, key):
         """
-        method to read the stream key
-
-        :return:
+        Method to read the stream key
         """
         with open(join(self.key_dir, key), "r") as stream_key:
             keys = stream_key.readlines()
@@ -409,9 +392,7 @@ class QSeisComP:
 
     def stream_latency(self, save=True):
         """
-        method to obtain latency of the existing station on the scproc
-
-        :return:
+        Method to obtain latency of the existing station on the scproc
         """
         # if self.df_local_sts.empty:
         self.get_existing_stations()
@@ -432,9 +413,7 @@ class QSeisComP:
 
     def run_slinktool(self, filt_station=False):
         """
-        method to fetch the response from the slinktool
-
-        :return:
+        Method to fetch the response from the slinktool
         """
 
         current_env = environ.copy()
@@ -483,7 +462,7 @@ class QSeisComP:
 
     def calc_latency(self, end_buffer):
         """
-        method to calculate the latency data
+        Method to calculate the latency data
 
         :return: latency in datetime format and seconds unit
         """
@@ -494,7 +473,7 @@ class QSeisComP:
 
     def write_ts_latency(self):
         """
-        method to store calculated latencies to time series data in self.slmon_ts_dir directory
+        Method to store calculated latencies to time series data in self.slmon_ts_dir directory
 
         :output: time series latency data
         """
@@ -518,20 +497,25 @@ class QSeisComP:
 
     def plot_ts_latency(self, station, dt_from=None, dt_to=None):
         """
-        method to plot time series of latency data
+        Method to plot time series of latency data
 
         :param station: station code
-        :param dt_from: date from (YYYY-M-D H:m:s)
-        :param dt_to: date to (YYYY-M-D H:m:s)
+        :param dt_from: date from (YYYY-M-D H:m:s) UTC timezone
+        :param dt_to: date to (YYYY-M-D H:m:s) UTC timezone
         :return: plot of latency time series
 
-        :usages:   Q_SC.plot_ts_latency("STATION_CODE")
+        :usages:   Q_SC.plot_ts_latency("STATION_CODE", from_datetime, to_datetime)
 
-        :example: Q_SC.plot_ts_latency("AAI", "2023-8-29 00:00:00", "2023-8-30 00:01:00")  --> plot an hour data
-                  Q_SC.plot_ts_latency("AAI", "2023-8-20", "2023-8-30")  --> plot 10 days data
-                  Q_SC.plot_ts_latency("AAI")  --> plot all data
+        :example: Q_SC.plot_ts_latency(["AAI", "WSTMM", "MSAI", "KRAI"]) --> plot several stations data
+                  Q_SC.plot_ts_latency("AAI", "2023-8-29 00:00:00", "2023-8-30 00:01:00")  --> plot an hour of AAI data
+                  Q_SC.plot_ts_latency("AAI", "2023-8-20", "2023-8-30")  --> plot 10 days of AAI data
+                  Q_SC.plot_ts_latency("AAI")  --> plot all of AAI data
         """
         group = None
+        if isinstance(station, string_types):
+            station = [station]
+        elif isinstance(station, list):
+            pass
         if dt_from is None:
             dt_from = dt(1970, 1, 1, 0, 0, 0)
         else:
@@ -540,55 +524,144 @@ class QSeisComP:
             dt_to = dt.now(tz.utc).replace(tzinfo=None)
         else:
             dt_to = pd.to_datetime(dt_to)
+
         files = listdir(self.slmon_ts_dir)
-        filtered_files = [filename for filename in files if filename.split(".")[1] == station]
-        if filtered_files:
-            data = pd.read_csv(join(self.slmon_ts_dir, filtered_files[0]), parse_dates=['Timestamp'], sep="\t")
-            df = data.set_index('Timestamp')
+        dict_data = {sta: next((f for f in files if f.split(".")[1] == sta), None) for sta in station}
+        filt_dict = {key: value for key, value in dict_data.items() if value is not None}
+        unuse_dict = {key: value for key, value in dict_data.items() if value is None}
 
-            df = df[(df.index >= dt_from) & (df.index <= dt_to)]
-
-            fig, ax = plt.subplots(figsize=(10, 6))
-            # plt.figure(figsize=(10, 6))
-            if group:
-                df['Latency(sec)'].resample(group).sum().plot(kind='bar')
-                ax.set_title('Daily Bar Chart')
-                if group == 'D':
-                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%M-%d'))
-                    ax.set_xlabel('Day')
-                else:
-                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-                    ax.set_xlabel('Month')
-                ax.set_ylabel('Latency (s)')
-                plt.show(block=False)
-            else:
-                latency_plot, unit = set_latency_unit(df['Latency(sec)'])
-                td_hours = (df.index[-1] - df.index[0]).total_seconds() / 3600
-                td_mins = (df.index[-1] - df.index[0]).total_seconds() / 60
-                latency_plot.plot()
-                ax.set_title(f'Station {station} Latency Time Series')
-                ax.set_xlabel('Time')
-                # ax.plot(df.index, [time.strftime('%Y-%m-%d %H:%M:%S') for time in df.index], rotation=90)
-                if td_hours / 10 < 1:
-                    ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=int(td_mins / 10)))
-                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))  # Format as desired
-                else:
-                    ax.xaxis.set_major_locator(mdates.HourLocator(interval=int(td_hours / 10)))
-                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))  # Format as desired
-                ax.set_ylabel(f'Latency ({unit})')
-                plt.show(block=False)
-
+        rows, cols = set_plot_nrows_ncols(len(filt_dict))
+        if rows > 1:
+            fig, ax = plt.subplots(rows, cols, figsize=(6 * cols, 2 * rows), sharex='all')
         else:
-            print(f"Station data not found on {self.slmon_ts_dir}")
+            fig, ax = plt.subplots(figsize=(8, 5))
+        plt.rcParams.update({'font.size': 7})
+        if unuse_dict:
+            for sta in unuse_dict.keys():
+                print(f"Station {sta} data not found on {self.slmon_ts_dir}")
+        if filt_dict:
+            min_xthick = dt(3000, 1, 1, 0, 0, 0)
+            max_xthick = dt(1970, 1, 1, 0, 0, 0)
+            i = j = 0
+            for sta, file in filt_dict.items():
+                if i >= rows:
+                    # plt.tick_params(axis='both', which='both', labelsize=5)
+                    j += 1
+                    i = 0
+                data = pd.read_csv(join(self.slmon_ts_dir, file), parse_dates=['Timestamp'], sep="\t")
+                df = data.set_index('Timestamp')
+                df = df[(df.index >= dt_from) & (df.index <= dt_to)]
+                if group:
+                    df['Latency(sec)'].resample(group).sum().plot(kind='bar', ax=ax[i])
+                    if group == 'D':
+                        if cols > 1:
+                            ax[i, j].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%M-%d'))
+                            ax[i, j].set_xlabel('Day', fontsize=6)
+                        else:
+                            if rows > 1:
+                                ax[i].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%M-%d'))
+                                ax[i].set_xlabel('Day', fontsize=6)
+                            else:
+                                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%M-%d'))
+                                ax.set_xlabel('Day', fontsize=6)
+                    else:
+                        if cols > 1:
+                            ax[i, j].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+                            ax[i, j].set_xlabel('Month', fontsize=6)
+                        else:
+                            if rows > 1:
+                                ax[i].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+                                ax[i].set_xlabel('Month', fontsize=6)
+                            else:
+                                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+                                ax.set_xlabel('Month', fontsize=6)
+                    if rows > 1:
+                        ax[i, j].set_ylabel('Latency (s)', fontsize=6)
+                    else:
+                        ax.set_ylabel('Latency (s)', fontsize=6)
+                else:
+                    latency_plot, unit = set_latency_unit(df['Latency(sec)'])
+                    if df.index[-1] > max_xthick:
+                        max_xthick = df.index[-1]
+                    if df.index[0] < min_xthick:
+                        min_xthick = df.index[0]
+                    if cols > 1:
+                        latency_plot.plot(ax=ax[i, j], label=f"Station {sta}")
+                        ax[i, j].set_ylabel(f'Latency ({unit})', fontsize=6)
+                        ax[i, j].legend(loc="upper right")
+                    else:
+                        if rows > 1:
+                            latency_plot.plot(ax=ax[i], label=f"Station {sta}")
+                            ax[i].set_ylabel(f'Latency ({unit})', fontsize=6)
+                            ax[i].legend(loc="upper right")
+                        else:
+                            latency_plot.plot(ax=ax, label=f"Station {sta}")
+                            ax.set_ylabel(f'Latency ({unit})', fontsize=6)
+                            ax.legend(loc="upper right")
+                # if cols > 1:
+                #     ax[i, j].set_title(f"Station {sta}", fontsize=7)
+                # else:
+                #     if rows > 1:
+                #         ax[i].set_title(f"Station {sta}", fontsize=7)
+                #     else:
+                #         ax.set_title(f"Station {sta}", fontsize=7)
+                i += 1
+            if group:
+                fig.suptitle('Daily Bar Chart', fontsize=8)
+            else:
+                td_hours = (max_xthick - min_xthick).total_seconds() / 3600
+                td_mins = (max_xthick - min_xthick).total_seconds() / 60
+                if td_hours / 12 < 1:
+                    if cols > 1:
+                        ax[0, 0].xaxis.set_major_locator(mdates.MinuteLocator(interval=int(td_mins / 12)))
+                        ax[0, 0].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+                    else:
+                        if rows > 1:
+                            ax[-1].xaxis.set_major_locator(mdates.MinuteLocator(interval=int(td_mins / 12)))
+                            ax[-1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+                        else:
+                            ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=int(td_mins / 12)))
+                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+                else:
+                    if cols > 1:
+                        ax[0, 0].xaxis.set_major_locator(mdates.HourLocator(interval=int(td_hours / 12)))
+                        ax[0, 0].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+                    else:
+                        if rows > 1:
+                            ax[-1].xaxis.set_major_locator(mdates.HourLocator(interval=int(td_hours / 12)))
+                            ax[-1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+                            ax[-1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+                        else:
+                            ax.xaxis.set_major_locator(mdates.HourLocator(interval=int(td_hours / 12)))
+                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+                for j in range(cols):
+                    plt.xticks(rotation=30)
+                    if cols > 1:
+                        ax[-1, j].set_xlabel('Time', fontsize=6)
+                        ax[-1, j].tick_params(axis='both', labelsize=5)
+                    else:
+                        if rows > 1:
+                            ax[-1].set_xlabel('Time', fontsize=6)
+                            ax[-1].tick_params(axis='both', labelsize=5)
+                        else:
+                            ax.set_xlabel('Time', fontsize=6)
+                            ax.tick_params(axis='both', labelsize=5)
+                fig.suptitle('Latency Time Series', fontsize=8)
+            plt.tight_layout()
+            plt.ion()
+            plt.show(block=False)
+        else:
+            print(f"Stations data not found on {self.slmon_ts_dir}")
+        plt.ioff()
 
     def check_existing_configuration(self):
         """
-        method to match configured stations on scproc with active stream on the seedlink
+        Method to match configured stations on scproc with active stream on the seedlink
 
         :return: info about mismatch station, recommended configuration, and option to fix the configuration
 
         :usages:  Q_SC.check_existing_configuration()
-
         """
         # if self.df_local_sts.empty:
         self.get_existing_stations()
@@ -603,9 +676,9 @@ class QSeisComP:
 
     def check_station(self):
         """
-        method to check a station configuration is match with seedlink
+        Method to check a station configuration is match with seedlink
 
-        :return:
+        :return: str details of error configuration and list of recommended configuration
         """
         pd.options.mode.chained_assignment = None
         merged_df = self.df_local_sts.merge(self.df_seedlink_responses,
@@ -650,7 +723,7 @@ class QSeisComP:
 
     def add_station(self, full_id, use_amplitude=True, checked=False, iters=False):
         """
-        method to add station/s to scproc
+        Method to add station/s to scproc
 
         :param full_id: <list/string> full station ID separated by a dot: NET.STA.LOC.CH
         :param use_amplitude: <bool> using amplitude in magnitude calculation
@@ -693,15 +766,14 @@ class QSeisComP:
             self.write_key(net, sta, loc, cha, use_amplitude, sta_SL_profile=False)
 
         if not iters:
-            update_config()
+            self.update_config()
 
     def get_inventory(self, network, station):
         """
-        method to get updated metadata
+        Method to get updated metadata
 
         :param network:
         :param station:
-        :return:
         """
         inv_url = (f"https://geof.bmkg.go.id/fdsnws/station/1/query?network={network}&"
                    f"station={station}&level=response&format=sc3ml&nodata=404")
@@ -735,11 +807,10 @@ class QSeisComP:
 
     def compare_inventory(self, network, station):
         """
-        method to check if two inventory is match or there is an update
+        Method to check if two inventory is match or there is an update
 
         :param network:
         :param station:
-        :return:
         """
 
         inv1_path = join(self.inv_dir, f"{network}.{station}.xml")
@@ -759,11 +830,10 @@ class QSeisComP:
 
     def update_inventory(self, network, station):
         """
-        method to update scproc inventory (preserve old inventory)
+        Method to update scproc inventory (preserve old inventory)
 
         :param network:
         :param station:
-        :return:
         """
         old_inv_dir = join(self.inv_dir, "old")
 
@@ -806,7 +876,7 @@ class QSeisComP:
 
     def write_key(self, network, station, location, channel, use_amplitude, sta_SL_profile=False):
         """
-        method to write key to scproc
+        Method to write key to scproc
 
         :param network:
         :param station:
@@ -814,7 +884,6 @@ class QSeisComP:
         :param channel:
         :param use_amplitude:
         :param sta_SL_profile:
-        :return:
         """
         key_path = join(self.key_dir, f"station_{network}_{station}")
 
@@ -857,10 +926,9 @@ class QSeisComP:
 
     def check_unexists_sts(self, alpha=6):
         """
-        method to detect unexisted station on scproc and automatically configured it
+        Method to detect unexisted station on scproc and automatically configured it
 
         :param alpha: concave parameter to estimate searching area based on alpha shape of existing stations
-        :return:
 
         :usages:  Q_SC.check_existing_configuration()
 
@@ -963,8 +1031,8 @@ class QSeisComP:
         m.drawmeridians(range(-180, 181, 5), labels=[1, 0, 0, 1], fontsize=12, fontweight='bold')
 
         xs, ys = m(recomm_sts_loc[:, 0], recomm_sts_loc[:, 1])
-        for sts, stslon, stslat in zip(recomm_sts, xs, ys):
-            plt.text(stslon, stslat, sts.split('.')[1], fontsize=7.5, ha='center', va='bottom', color='k', weight='bold')
+        for sts, s_lon, s_lat in zip(recomm_sts, xs, ys):
+            plt.text(s_lon, s_lat, sts.split('.')[1], fontsize=7.5, ha='center', va='bottom', color='k', weight='bold')
         # ax.set_xlabel("Longitude")
         # ax.set_ylabel("Latitude")
         plt.legend()
@@ -996,7 +1064,7 @@ class QSeisComP:
                 m.scatter(loc[0], loc[1], latlon=True,
                           marker='v', color='blue', label=f'New Station "{sta}"')
                 xx, yy = m(loc[0], loc[1])
-                plt.text(xx, yy, sta.split('.')[1], fontsize=10, ha='center', va='bottom', color='k',
+                plt.text(xx, yy, sta.split('.')[1], fontsize=6, ha='center', va='bottom', color='k',
                          weight='bold')
                 m.drawparallels(range(-90, 91, 5), labels=[1, 0, 0, 1], fontsize=12, fontweight='bold')
                 m.drawmeridians(range(-180, 181, 5), labels=[1, 0, 0, 1], fontsize=12, fontweight='bold')
@@ -1015,7 +1083,7 @@ class QSeisComP:
                 fig.clf()
             plt.ioff()
             plt.close()
-            update_config()
+            self.update_config()
         elif choice == '2':
             self.add_station(recomm_sts, checked=True)
         elif choice == '3':
@@ -1030,9 +1098,9 @@ class QSeisComP:
 
     def read_local_coordinate(self):
         """
-        method to get existing scproc station location information
+        Method to get existing scproc station location information
 
-        :return:
+        :return: list of stations with the coordinates
         """
         if exists(join(self.tmp_dir, 'local_coord.csv')):
             sts_list = pd.read_csv(join(self.tmp_dir, 'local_coord.csv'))
@@ -1065,7 +1133,9 @@ class QSeisComP:
 
     def read_server_coordinate(self):
         """
-        method to get seedlink station location information
+        Method to get seedlink station location information
+
+        :return: list of stations with the coordinates
         """
         if exists(join(self.tmp_dir, 'server_coord.csv')):
             sts_list = pd.read_csv(join(self.tmp_dir, 'server_coord.csv'))
@@ -1120,11 +1190,42 @@ class QSeisComP:
 
         return sts_list
 
+    @staticmethod
+    def update_config():
+        """
+        Function to update the configurations and restart seiscomp services
+        """
+        current_env = environ.copy()
+        additional_paths = ['/home/sysop/seiscomp/bin/']
+        current_env['PATH'] = ":".join(additional_paths + [current_env.get('PATH', '')])
+
+        completed_process = subprocess.run("seiscomp update-config", shell=True, env=current_env,
+                                           text=True, capture_output=True)
+
+        if completed_process.returncode == 0:
+            completed_process = subprocess.run("seiscomp restart", shell=True, env=current_env,
+                                               text=True, capture_output=True)
+            if completed_process.returncode == 0:
+                print("Seiscomp configuration updated. Please restart the GUIs")
+            else:
+                print("Seiscomp configuration updated. Please restart the seiscomp service and the the GUIs")
+        else:
+            print("Error update seiscomp configuration. "
+                  "Please run 'seiscomp update-config' manually then restart the seiscomp services and the GUIs")
+
+
+if __name__ == "__main__":
+    Q_SC = QSeisComP()
+    help(Q_SC)
 
 Q_SC = QSeisComP()
+PGRIX = ["AAI", "AAII", "TAMI", "KRAI", "MSAI", "NLAI", "SRMI", "NBMI", "SEMI", "BNDI", "BSMI", "SSMI",
+         "TLE2", "KTMI", "KKMI", "SAUI", "ARMI", "TMTMM", "WSTMM", "NSBMM", "TTSMI", "PBMMI", "MLMMI"]
+# TESTING
 # Q_SC.plot_ts_latency("KRAI")
-# Q_SC.plot_ts_latency("WSTMM", "2023-8-29 00:00:00", "2023-8-30 00:01:00")
-#Q_SC.check_existing_configuration()
+# Q_SC.plot_ts_latency(PGRIX)
+# Q_SC.plot_ts_latency(["WSTMM", "DGF", "KRAI", "ABC"], "2023-8-29 00:00:00", "2023-8-30 00:01:00")
+# Q_SC.check_existing_configuration()
 # Q_SC.check_unexists_sts()
 # Q_SC.get_inventory("IA", "AAI")
 # Q_SC.compare_inventory("IA", "AAI")
