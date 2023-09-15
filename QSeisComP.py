@@ -236,7 +236,7 @@ class QSeisComP:
                 Q_SC.check_existing_configuration() --> to check and fix mismatch station configuration
                 Q_SC.check_unexists_sts() --> to check and add unexists station on scproc observation area
 
-    need additional package basemap and shapely: pip install pkgs
+    dependecies: numpy, pandas, scipy, basemap and shapely
     """
 
     def __init__(self):
@@ -990,7 +990,7 @@ class QSeisComP:
 
             # ax.set_xlabel("Longitude")
             # ax.set_ylabel("Latitude")
-            plt.legend()
+            plt.legend(loc="upper right")
             plt.ion()
             plt.show(block=False)
 
@@ -1029,7 +1029,7 @@ class QSeisComP:
             plt.text(s_lon, s_lat, sts.split('.')[1], fontsize=7.5, ha='center', va='bottom', color='k', weight='bold')
         # ax.set_xlabel("Longitude")
         # ax.set_ylabel("Latitude")
-        plt.legend()
+        plt.legend(loc="upper right")
         plt.show(block=False)
 
         print(f"There are {len(recomm_sts)} new stations that can be added:")
