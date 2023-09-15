@@ -542,6 +542,7 @@ class QSeisComP:
         if filt_dict:
             min_xthick = dt(3000, 1, 1, 0, 0, 0)
             max_xthick = dt(1970, 1, 1, 0, 0, 0)
+            y_color = {'seconds': 'green', 'minutes': 'orange', 'hours': 'red', 'days': 'gray', 'weeks': 'k'}
             i = j = 0
             for sta, file in filt_dict.items():
                 if i >= rows:
@@ -586,25 +587,18 @@ class QSeisComP:
                     if df.index[0] < min_xthick:
                         min_xthick = df.index[0]
                     if cols > 1:
-                        latency_plot.plot(ax=ax[i, j], label=f"Station {sta}")
+                        latency_plot.plot(ax=ax[i, j], color=y_color[unit], label=f"{sta}")
                         ax[i, j].set_ylabel(f'Latency ({unit})', fontsize=6)
                         ax[i, j].legend(loc="upper right")
                     else:
                         if rows > 1:
-                            latency_plot.plot(ax=ax[i], label=f"Station {sta}")
+                            latency_plot.plot(ax=ax[i], color=y_color[unit], label=f"{sta}")
                             ax[i].set_ylabel(f'Latency ({unit})', fontsize=6)
                             ax[i].legend(loc="upper right")
                         else:
-                            latency_plot.plot(ax=ax, label=f"Station {sta}")
+                            latency_plot.plot(ax=ax, color=y_color[unit], label=f"{sta}")
                             ax.set_ylabel(f'Latency ({unit})', fontsize=6)
                             ax.legend(loc="upper right")
-                # if cols > 1:
-                #     ax[i, j].set_title(f"Station {sta}", fontsize=7)
-                # else:
-                #     if rows > 1:
-                #         ax[i].set_title(f"Station {sta}", fontsize=7)
-                #     else:
-                #         ax.set_title(f"Station {sta}", fontsize=7)
                 i += 1
             if group:
                 fig.suptitle('Daily Bar Chart', fontsize=8)
