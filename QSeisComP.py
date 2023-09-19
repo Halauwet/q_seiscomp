@@ -1,4 +1,3 @@
-import sys
 import shutil
 import numpy as np
 import requests
@@ -229,12 +228,14 @@ class QSeisComP:
                 crontab -e
                 */5 * * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_latency.py > q_seiscomp.log 2>&1
 
-            run 3 main function after load the class instance:
-                from q_seiscomp.QSeisComP import Q_SC
+            run 3 main method after load the class instance:
+                from q_seiscomp import q_seiscomp
 
-                Q_SC.plot_ts_latency("STATION_CODE") --> to plot time series after register ts_latency to crontab
-                Q_SC.check_existing_configuration() --> to check and fix mismatch station configuration
-                Q_SC.check_unexists_sts() --> to check and add unexists station on scproc observation area
+                q_seiscomp.plot_ts_latency("STATION_CODE") --> to plot time series after register ts_latency to crontab
+                q_seiscomp.check_existing_configuration() --> to check and fix mismatch station configuration
+                q_seiscomp.check_unexists_sts() --> to check and add unexists station on scproc observation area
+
+            using help(method) to see more detail: example help(q_seiscomp.plot_ts_latency)
 
     dependecies: numpy, pandas, scipy, basemap and shapely
     """
@@ -278,7 +279,7 @@ class QSeisComP:
         """
 
         current_env = environ.copy()
-        additional_paths = ['/home/sysop/seiscomp/bin/']
+        additional_paths = [join(environ['HOME'], "seiscomp", "bin")]
         current_env['PATH'] = ":".join(additional_paths + [current_env.get('PATH', '')])
 
         completed_process = subprocess.run("seiscomp exec scrttv -V", shell=True, env=current_env,
@@ -417,7 +418,7 @@ class QSeisComP:
         """
 
         current_env = environ.copy()
-        additional_paths = ['/home/eq/slinktool', '/home/sysop/seiscomp/bin/']
+        additional_paths = [join(environ['HOME'], "seiscomp", "bin"), join(environ['HOME'], "slinktool")]
         current_env['PATH'] = ":".join(additional_paths + [current_env.get('PATH', '')])
 
         self.df_seedlink_responses = pd.DataFrame()
@@ -481,18 +482,18 @@ class QSeisComP:
             sts_ts_latency = join(self.slmon_ts_dir, f'{r["Network_code"]}.{r["Station_code"]}.'
                                                      f'{r["Location_code"]}.{r["Channel"][:2]}')
 
-            latency_data = (f'{self.current_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\t'
-                            f'{self.current_time.timestamp()}\t'
-                            f'{r["Latency"]}\t{r["Latency_secs"]}')
-            # latency_data = f'{self.current_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\t{r["Latency_secs"]}'
+            # latency_data = (f'{self.current_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\t'
+            #                 f'{self.current_time.timestamp()}\t'
+            #                 f'{r["Latency"]}\t{r["Latency_secs"]}')
+            latency_data = f'{self.current_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\t{r["Latency_secs"]}'
 
             if exists(sts_ts_latency):  # write finished event to finished catalog
                 with open(sts_ts_latency, 'a') as f:
                     f.write(f'{latency_data}\n')
             else:
                 with open(sts_ts_latency, 'w') as f:
-                    f.write(f'Timestamp\tTimestamp(sec)\tLatency\tLatency(sec)\n{latency_data}\n')
-                    # f.write(f'Timestamp\tLatency(sec)\n{latency_data}\n')
+                    # f.write(f'Timestamp\tTimestamp(sec)\tLatency\tLatency(sec)\n{latency_data}\n')
+                    f.write(f'Timestamp\tLatency(sec)\n{latency_data}\n')
         print(f'Latency data written to: {self.slmon_ts_dir}')
 
     def plot_ts_latency(self, station, dt_from=None, dt_to=None):
@@ -504,12 +505,12 @@ class QSeisComP:
         :param dt_to: date to (YYYY-M-D H:m:s) UTC timezone
         :return: plot of latency time series
 
-        :usages:   Q_SC.plot_ts_latency("STATION_CODE", from_datetime, to_datetime)
+        :usages:   q_seiscomp.plot_ts_latency("STATION_CODE", from_datetime, to_datetime)
 
-        :example: Q_SC.plot_ts_latency(["AAI", "WSTMM", "MSAI", "KRAI"]) --> plot several stations data
-                  Q_SC.plot_ts_latency("AAI", "2023-8-29 00:00:00", "2023-8-30 00:01:00")  --> plot an hour of AAI data
-                  Q_SC.plot_ts_latency("AAI", "2023-8-20", "2023-8-30")  --> plot 10 days of AAI data
-                  Q_SC.plot_ts_latency("AAI")  --> plot all of AAI data
+        :example: q_seiscomp.plot_ts_latency(["AAI", "WSTMM", "MSAI", "KRAI"]) --> plot several stations data
+                  q_seiscomp.plot_ts_latency("AAI", "2023-8-29 00:00:00", "2023-8-30 00:01:00") --> plot an hour data
+                  q_seiscomp.plot_ts_latency("AAI", "2023-8-20", "2023-8-30")  --> plot 10 days of AAI data
+                  q_seiscomp.plot_ts_latency("AAI")  --> plot all of AAI data
         """
         group = None
         if isinstance(station, string_types):
@@ -655,7 +656,7 @@ class QSeisComP:
 
         :return: info about mismatch station, recommended configuration, and option to fix the configuration
 
-        :usages:  Q_SC.check_existing_configuration()
+        :usages:  q_seiscomp.check_existing_configuration()
         """
         # if self.df_local_sts.empty:
         self.get_existing_stations()
@@ -728,10 +729,10 @@ class QSeisComP:
         :param use_amplitude: <bool> using amplitude in magnitude calculation
         :param checked: <bool> already checked for seedlink availability
 
-        :usages:  Q_SC.add_station(["STATION_CODE"])
+        :usages:  q_seiscomp.add_station(["STATION_CODE"])
 
-        :example: Q_SC.add_station("IA.AAI..BH")  --> add a station
-                  Q_SC.add_station(["IA.AAI..BH", "IA.BNDI..BH"])  --> add several stations
+        :example: q_seiscomp.add_station("IA.AAI..BH")  --> add a station
+                  q_seiscomp.add_station(["IA.AAI..BH", "IA.BNDI..BH"])  --> add several stations
         """
         if isinstance(full_id, string_types):
             full_id = [full_id]
@@ -925,7 +926,7 @@ class QSeisComP:
 
         :param alpha: concave parameter to estimate searching area based on alpha shape of existing stations
 
-        :usages:  Q_SC.check_existing_configuration()
+        :usages:  q_seiscomp.check_existing_configuration()
 
         """
         pd.options.mode.chained_assignment = None
@@ -1195,7 +1196,7 @@ class QSeisComP:
         Function to update the configurations and restart seiscomp services
         """
         current_env = environ.copy()
-        additional_paths = ['/home/sysop/seiscomp/bin/']
+        additional_paths = [join(environ['HOME'], "seiscomp", "bin")]
         current_env['PATH'] = ":".join(additional_paths + [current_env.get('PATH', '')])
 
         completed_process = subprocess.run("seiscomp update-config", shell=True, env=current_env,
@@ -1214,19 +1215,20 @@ class QSeisComP:
 
 
 if __name__ == "__main__":
-    Q_SC = QSeisComP()
-    help(Q_SC)
+    q_seiscomp = QSeisComP()
+    help(q_seiscomp)
 
-Q_SC = QSeisComP()
-PGRIX = ["AAI", "AAII", "TAMI", "KRAI", "MSAI", "NLAI", "SRMI", "NBMI", "SEMI", "BNDI", "BSMI", "SSMI",
-         "TLE2", "KTMI", "KKMI", "SAUI", "ARMI", "TMTMM", "WSTMM", "NSBMM", "TTSMI", "PBMMI", "MLMMI"]
+
 # TESTING
-# Q_SC.plot_ts_latency("KRAI")
-# Q_SC.plot_ts_latency(PGRIX)
-# Q_SC.plot_ts_latency(["WSTMM", "DGF", "KRAI", "ABC"], "2023-8-29 00:00:00", "2023-8-30 00:01:00")
-# Q_SC.check_existing_configuration()
-# Q_SC.check_unexists_sts()
-# Q_SC.get_inventory("IA", "AAI")
-# Q_SC.compare_inventory("IA", "AAI")
-# Q_SC.update_inventory("IA", "AAI")
-# Q_SC.add_station("IA.AAI..SH")
+# q_seiscomp = QSeisComP()
+# PGRIX = ["AAI", "AAII", "TAMI", "KRAI", "MSAI", "NLAI", "SRMI", "NBMI", "SEMI", "BNDI", "BSMI", "SSMI",
+#          "TLE2", "KTMI", "KKMI", "SAUI", "ARMI", "TMTMM", "WSTMM", "NSBMM", "TTSMI", "PBMMI", "MLMMI"]
+# q_seiscomp.plot_ts_latency("KRAI")
+# q_seiscomp.plot_ts_latency(PGRIX)
+# q_seiscomp.plot_ts_latency(["WSTMM", "DGF", "KRAI", "ABC"], "2023-8-29 00:00:00", "2023-8-30 00:01:00")
+# q_seiscomp.check_existing_configuration()
+# q_seiscomp.check_unexists_sts()
+# q_seiscomp.get_inventory("IA", "AAI")
+# q_seiscomp.compare_inventory("IA", "AAI")
+# q_seiscomp.update_inventory("IA", "AAI")
+# q_seiscomp.add_station("IA.AAI..SH")

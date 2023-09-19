@@ -8,15 +8,15 @@ usages: copy q_seiscomp dir to seiscomp/lib/python
             crontab -e
             */5 * * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_latency.py > q_seiscomp.log 2>&1
     
-run 3 main function after load the class instance <from q_seiscomp.QSeisComP import Q_SC>
+run 3 main function after load the class instance <from q_seiscomp import q_seiscomp>
 
-Q_SC.plot_ts_latency("STATION_CODE") --> to plot time series after register ts_latency to crontab
+q_seiscomp.plot_ts_latency("STATION_CODE") --> to plot time series after register ts_latency to crontab
 ![latency_plot_single_sta](images/TS_1.png?raw=true "Title")
 ![latency_plot_multi_sts](images/TS_2.png?raw=true "Title")
             
-            Q_SC.check_existing_configuration() --> to check and fix mismatch station configuration
+q_seiscomp.check_existing_configuration() --> to check and fix mismatch station configuration
 
-Q_SC.check_unexists_sts() --> to check and add unexists station on scproc observation area
+q_seiscomp.check_unexists_sts() --> to check and add unexists station on scproc observation area
 
 [Searching area]
 ![latency_plot_multi_sts](images/Set_searching_area.png?raw=true "Title")
