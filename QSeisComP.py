@@ -664,9 +664,11 @@ class QSeisComP:
             self.run_slinktool()
         error, list_recom = self.check_station()
         print(error)
-        add_sts = input("Fix current configuration? ([Y]/N)") or "Y"
-        if add_sts == 'Y' or add_sts == 'y':
-            self.add_station(list_recom, checked=True)
+        if list_recom:
+            add_sts = input("Fix current configuration? ([Y]/N)") or "Y"
+            if add_sts == 'Y' or add_sts == 'y':
+                self.add_station(list_recom, checked=True)
+                self.update_config()
 
     def check_station(self):
         """
@@ -706,8 +708,11 @@ class QSeisComP:
                     if not found:
                         recom_sts = (f"{rr['Network_code']}.{rr['Station_code']}."
                                      f"{rr['Location_code']}.{rr['Init_Channel']}")
-
-            if err_sta not in recomend_detail:
+            if not recomend_detail:
+                error_detail += (f'\nStation "{r["Network_code"]}.{r["Station_code"]}.{r["Location_code"]}.'
+                                 f'{r["Channel"][:2]}" is not available in seedlink stream. \n'
+                                 f'There is no recommended stream')
+            elif err_sta not in recomend_detail:
                 error_detail += (f'\nStation "{r["Network_code"]}.{r["Station_code"]}.{r["Location_code"]}.'
                                  f'{r["Channel"][:2]}" is not available in seedlink stream. \n'
                                  f'Recommended stream: {recomend_detail}')
@@ -715,14 +720,13 @@ class QSeisComP:
 
         return error_detail, recomm_sts
 
-    def add_station(self, full_id, use_amplitude=True, checked=False, iters=False):
+    def add_station(self, full_id, use_amplitude=True, checked=False):
         """
         Method to add station/s to scproc
 
         :param full_id: <list/string> full station ID separated by a dot: NET.STA.LOC.CH
         :param use_amplitude: <bool> using amplitude in magnitude calculation
         :param checked: <bool> already checked for seedlink availability
-        :param iters: <bool> set true if added simultaneously (update-config on last station add)
 
         :usages:  Q_SC.add_station(["STATION_CODE"])
 
@@ -739,8 +743,8 @@ class QSeisComP:
             try:
                 net, sta, loc, cha = stn.split('.')
             except ValueError:
-                print('Wrong full id. Full id format: "NET.STA.LOC.CH". example: "IA.AAI..BH"')
-                sys.exit(1)
+                print(f'Wrong full id "{stn}". Full id format: "NET.STA.LOC.CH". example: "IA.AAI..BH"')
+                break
 
             if not checked:
                 self.df_local_sts = pd.DataFrame([{'Stream_key': f"station_{net}_{sta}", 'Network_code': net,
@@ -752,15 +756,12 @@ class QSeisComP:
                 if error:
                     print(error)
                     print("Canceling add station...")
-                    sys.exit(1)
+                    break
 
             self.get_inventory(net, sta)
             # self.compare_inventory(net, sta)
             self.update_inventory(net, sta)
             self.write_key(net, sta, loc, cha, use_amplitude, sta_SL_profile=False)
-
-        if not iters:
-            self.update_config()
 
     def get_inventory(self, network, station):
         """
@@ -956,7 +957,8 @@ class QSeisComP:
             try:
                 alpha = float(alpha)
             except ValueError:
-                sys.exit(1)
+                print("Wrong input.")
+                return
 
             margin_area = []
 
@@ -1046,6 +1048,7 @@ class QSeisComP:
 
         fig.clf()
 
+        update = False
         if choice == '1':
             for sta, loc in zip(recomm_sts, recomm_sts_loc):
 
@@ -1069,26 +1072,28 @@ class QSeisComP:
 
                 add_sts = input(f"Add station {sta}? ([Y]/N/X for cancel)") or "Y"
                 if add_sts == 'Y' or add_sts == 'y':
-                    self.add_station(sta, checked=True, iters=True)
-                if add_sts == 'X' or add_sts == 'x':
+                    self.add_station(sta, checked=True)
+                    update = True
+                elif add_sts == 'X' or add_sts == 'x':
                     plt.ioff()
                     plt.close()
-                    sys.exit(1)
+                    break
                 fig.clf()
             plt.ioff()
             plt.close()
-            self.update_config()
         elif choice == '2':
             self.add_station(recomm_sts, checked=True)
+            update = True
         elif choice == '3':
             print("Canceling...")
             plt.ioff()
             plt.close()
-            # update_config()
         else:
             print("Invalid choice. Canceling...")
             plt.ioff()
             plt.close()
+        if update:
+            self.update_config()
 
     def read_local_coordinate(self):
         """
