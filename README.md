@@ -7,6 +7,8 @@ usages: copy q_seiscomp dir to seiscomp/lib/python
         register ts_latency to crontab:
             crontab -e
             */5 * * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_latency.py > q_seiscomp.log 2>&1
+            
+Demo video: https://youtu.be/FVi7mRas8M8. 
     
 run 3 main function after load the class instance <from q_seiscomp import q_seiscomp>
 

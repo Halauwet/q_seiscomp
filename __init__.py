@@ -22,6 +22,7 @@ print(
     """)
 
 q_seiscomp = QSeisComP()
+Q_SC = q_seiscomp
 PGRIX = ["AAI", "AAII", "TAMI", "KRAI", "MSAI", "NLAI", "SRMI", "NBMI", "SEMI", "BNDI", "BSMI", "SSMI",
          "TLE2", "KTMI", "KKMI", "SAUI", "ARMI", "TMTMM", "WSTMM", "NSBMM", "TTSMI", "PBMMI", "MLMMI"]
 # help(q_seiscomp)
