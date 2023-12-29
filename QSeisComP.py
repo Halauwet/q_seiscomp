@@ -533,7 +533,7 @@ class QSeisComP:
 
         rows, cols = set_plot_nrows_ncols(len(filt_dict))
         if rows > 1:
-            fig, ax = plt.subplots(rows, cols, figsize=(6 * cols, 2 * rows), sharex='all')
+            fig, ax = plt.subplots(rows, cols, figsize=(6 * cols, 1.8 * rows), sharex='all')
         else:
             fig, ax = plt.subplots(figsize=(8, 5))
         plt.rcParams.update({'font.size': 7})
@@ -590,15 +590,18 @@ class QSeisComP:
                     if cols > 1:
                         latency_plot.plot(ax=ax[i, j], color=y_color[unit], label=f"{sta}")
                         ax[i, j].set_ylabel(f'Latency ({unit})', fontsize=6)
+                        ax[i, j].tick_params(axis='both', labelsize=5)
                         ax[i, j].legend(loc="upper right")
                     else:
                         if rows > 1:
                             latency_plot.plot(ax=ax[i], color=y_color[unit], label=f"{sta}")
                             ax[i].set_ylabel(f'Latency ({unit})', fontsize=6)
+                            ax[i].tick_params(axis='both', labelsize=5)
                             ax[i].legend(loc="upper right")
                         else:
                             latency_plot.plot(ax=ax, color=y_color[unit], label=f"{sta}")
                             ax.set_ylabel(f'Latency ({unit})', fontsize=6)
+                            ax.tick_params(axis='both', labelsize=5)
                             ax.legend(loc="upper right")
                 i += 1
             if group:
@@ -643,7 +646,7 @@ class QSeisComP:
                             ax.set_xlabel('Time', fontsize=6)
                             ax.tick_params(axis='both', labelsize=5)
                 fig.suptitle('Latency Time Series', fontsize=8)
-            plt.tight_layout()
+            # plt.tight_layout()
             plt.ion()
             plt.show(block=False)
         else:
