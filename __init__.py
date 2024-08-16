@@ -9,20 +9,23 @@ print(
 
             register ts_latency to crontab:
                 crontab -e
-                */5 * * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_latency.py > q_seiscomp.log 2>&1
+                */5 * * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_latency.py > q_seiscompL.log 2>&1
+                0 0,4,8,12,16,20 * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_quality.py > q_seiscompQ.log 2>&1"
+
 
             run 3 main method after load the class instance:
+                from q_seiscomp import *
 
                 q_seiscomp.plot_ts_latency("STATION_CODE") --> to plot time series after register ts_latency to crontab
+                q_seiscomp.plot_ts_quality("STATION_CODE") --> to plot time series after register ts_quality to crontab
                 q_seiscomp.check_existing_configuration() --> to check and fix mismatch station configuration
                 q_seiscomp.check_unexists_sts() --> to check and add unexists station on scproc observation area
 
-            using help(method) to see more detail. Example: help(q_seiscomp.plot_ts_latency)
+            using help(method) to see more detail: example help(q_seiscomp.plot_ts_latency)
 
     """)
 
 q_seiscomp = QSeisComP()
-Q_SC = q_seiscomp
-PGRIX = ["AAI", "AAII", "TAMI", "KRAI", "MSAI", "NLAI", "SRMI", "NBMI", "SEMI", "BNDI", "BSMI", "SSMI",
-         "TLE2", "KTMI", "KKMI", "SAUI", "ARMI", "TMTMM", "WSTMM", "NSBMM", "TTSMI", "PBMMI", "MLMMI"]
+PGR_IX = ["AAI", "AAII", "MSAI", "NLAI", "BNDI", "SAUI", "KRAI", "TLE2", "BSMI", "TAMI", "SRMI", "NBMI", "SEMI", "SSMI", "KTMI", "KKMI","ARMI", "TMTMM", "NSBMM", "WSTMM", "TTSMI", "PBMMI", "MLMMI", "PAMI", "BDMI", "TKMN"]
+PGRIX = ["AAI", "AAII", "MSAI", "NLAI", "BNDI", "SAUI", "KRAI", "TLE2", "BSMI", "TAMI", "SRMI", "NBMI", "SEMI", "SSMI", "TMTMM", "NSBMM", "WSTMM", "TTSMI", "PBMMI", "MLMMI", "PAMI", "BDMI", "TKMN"]
 # help(q_seiscomp)
