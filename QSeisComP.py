@@ -1,7 +1,9 @@
+import os
+import sys
 import shutil
-import numpy as np
 import requests
 import subprocess
+import numpy as np
 import pandas as pd
 import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
@@ -11,13 +13,15 @@ from glob import glob
 from six import string_types
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
-from datetime import datetime as dt
-from datetime import timezone as tz
-# from obspy import read_inventory
-# from obspy.clients.fdsn.client import Client
+from datetime import datetime as dt, timezone as tz, timedelta as td
 from scipy.spatial import Delaunay
-from os import getcwd, mkdir, environ, listdir
-from os.path import join, exists
+from os import mkdir, environ, listdir
+from os.path import join, exists, isfile
+from obspy import read, UTCDateTime, Trace
+from obspy.imaging.cm import pqlx
+from matplotlib.colors import LinearSegmentedColormap
+from obspy.core.inventory.inventory import read_inventory
+from obspy.signal.spectral_estimation import PPSD, get_nlnm, get_nhnm
 
 
 def set_latency_unit(data_latency):
@@ -226,18 +230,21 @@ class QSeisComP:
 
             register ts_latency to crontab:
                 crontab -e
-                */5 * * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_latency.py > q_seiscomp.log 2>&1
+                */5 * * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_latency.py > q_seiscompL.log 2>&1
+                0 0,4,8,12,16,20 * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_quality.py > q_seiscompQ.log 2>&1"
+
 
             run 3 main method after load the class instance:
-                from q_seiscomp import q_seiscomp
+                from q_seiscomp import *
 
                 q_seiscomp.plot_ts_latency("STATION_CODE") --> to plot time series after register ts_latency to crontab
+                q_seiscomp.plot_ts_quality("STATION_CODE") --> to plot time series after register ts_quality to crontab
                 q_seiscomp.check_existing_configuration() --> to check and fix mismatch station configuration
                 q_seiscomp.check_unexists_sts() --> to check and add unexists station on scproc observation area
 
             using help(method) to see more detail: example help(q_seiscomp.plot_ts_latency)
 
-    dependecies: numpy, pandas, scipy, basemap and shapely
+    dependecies: obspy, numpy, pandas, scipy, basemap and shapely
     """
 
     def __init__(self):
@@ -246,6 +253,8 @@ class QSeisComP:
 
         self.etc_dir = join(environ['HOME'], "seiscomp", "etc")
         self.slmon_ts_dir = join(environ['HOME'], "seiscomp", "var", "lib", "slmon_ts")
+        self.quality_ts_dir = join(environ['HOME'], "seiscomp", "var", "lib", "quality_ts")
+        self.ppsd_plot_dir = join(environ['HOME'], "seiscomp", "var", "lib", "quality_ts", "last_ppsd")
         self.lib_dir = join(environ['HOME'], "seiscomp", "lib", "python", "q_seiscomp")
         self.check_sc_version()
         # self.etc_dir = join(getcwd(), 'etc')
@@ -254,6 +263,7 @@ class QSeisComP:
 
         self.key_dir = join(self.etc_dir, 'key')
         self.inv_dir = join(self.etc_dir, 'inventory')
+        self.arc_dir = join(environ['HOME'], "seiscomp", 'var', 'lib', 'archive')
         self.sl_profile_dir = join(self.key_dir, 'seedlink')
         self.tmp_dir = join(self.lib_dir, "tmp")
 
@@ -270,6 +280,10 @@ class QSeisComP:
 
         if not exists(self.slmon_ts_dir):
             mkdir(self.slmon_ts_dir)
+        if not exists(self.quality_ts_dir):
+            mkdir(self.quality_ts_dir)
+        if not exists(self.ppsd_plot_dir):
+            mkdir(self.ppsd_plot_dir)
         if not exists(self.tmp_dir):
             mkdir(self.tmp_dir)
 
@@ -333,13 +347,13 @@ class QSeisComP:
             with open(join(self.sl_profile_dir, f"profile_{profile}"), "r") as sl_profile:
                 p = sl_profile.readlines()
                 for l in p:
-                    if "sources.chain.address" in l:
+                    if ".address" in l:
                         l = l.strip().split("=")
                         host = l[1].strip()
-                    if "sources.chain.port" in l:
+                    if ".port" in l:
                         l = l.strip().split("=")
                         port = l[1].strip()
-                    if "sources.chain.selectors" in l:
+                    if ".selectors" in l:
                         l = l.strip().split("=")
                         filt = l[1].strip()
                     else:
@@ -494,7 +508,7 @@ class QSeisComP:
                 with open(sts_ts_latency, 'w') as f:
                     # f.write(f'Timestamp\tTimestamp(sec)\tLatency\tLatency(sec)\n{latency_data}\n')
                     f.write(f'Timestamp\tLatency(sec)\n{latency_data}\n')
-        print(f'Latency data written to: {self.slmon_ts_dir}')
+        print(f'Latency data is written to: {self.slmon_ts_dir}')
 
     def plot_ts_latency(self, station, dt_from=None, dt_to=None):
         """
@@ -533,7 +547,7 @@ class QSeisComP:
 
         rows, cols = set_plot_nrows_ncols(len(filt_dict))
         if rows > 1:
-            fig, ax = plt.subplots(rows, cols, figsize=(6 * cols, 1.8 * rows), sharex='all')
+            fig, ax = plt.subplots(rows, cols, figsize=(6 * cols, 2 * rows), sharex='all')
         else:
             fig, ax = plt.subplots(figsize=(8, 5))
         plt.rcParams.update({'font.size': 7})
@@ -583,15 +597,22 @@ class QSeisComP:
                         ax.set_ylabel('Latency (s)', fontsize=6)
                 else:
                     latency_plot, unit = set_latency_unit(df['Latency(sec)'])
+                    maxy = latency_plot.max()
                     if df.index[-1] > max_xthick:
                         max_xthick = df.index[-1]
                     if df.index[0] < min_xthick:
                         min_xthick = df.index[0]
                     if cols > 1:
+                        # for r in range(rows):
+                        #     for c in range(cols):
+                        #         ax[r, c].set_ylabel(f'Latency', fontsize=6)
+                        #         ax[r, c].tick_params(axis='both', labelsize=5)
                         latency_plot.plot(ax=ax[i, j], color=y_color[unit], label=f"{sta}")
                         ax[i, j].set_ylabel(f'Latency ({unit})', fontsize=6)
                         ax[i, j].tick_params(axis='both', labelsize=5)
                         ax[i, j].legend(loc="upper right")
+                        if unit == "seconds" and maxy < 60:
+                            ax[i, j].set_ylim([0, 60])
                     else:
                         if rows > 1:
                             latency_plot.plot(ax=ax[i], color=y_color[unit], label=f"{sta}")
@@ -645,12 +666,171 @@ class QSeisComP:
                         else:
                             ax.set_xlabel('Time', fontsize=6)
                             ax.tick_params(axis='both', labelsize=5)
-                fig.suptitle('Latency Time Series', fontsize=8)
-            # plt.tight_layout()
+                fig.suptitle('Latency Time Series', fontsize=10)
+
+            plt.tight_layout(rect=[0, 0.02, 1, 0.965])
             plt.ion()
             plt.show(block=False)
         else:
             print(f"Stations data not found on {self.slmon_ts_dir}")
+        plt.ioff()
+
+    def plot_ts_quality(self, station, dt_from=None, dt_to=None):
+        """
+        Method to plot time series of quality data
+
+        :param station: station code
+        :param dt_from: date from (YYYY-M-D H:m:s) UTC timezone
+        :param dt_to: date to (YYYY-M-D H:m:s) UTC timezone
+        :return: plot of quality time series
+
+        :usages:   q_seiscomp.plot_ts_quality("STATION_CODE", from_datetime, to_datetime)
+
+        :example: q_seiscomp.plot_ts_quality(["AAI", "WSTMM", "MSAI", "KRAI"]) --> plot several stations data
+                  q_seiscomp.plot_ts_quality("AAI", "2023-8-20", "2023-8-30")  --> plot 10 days of AAI data
+                  q_seiscomp.plot_ts_quality("AAI")  --> plot all of AAI data
+        """
+
+        if isinstance(station, string_types):
+            station = [station]
+        elif isinstance(station, list):
+            pass
+        if dt_from is None:
+            dt_from = dt(1970, 1, 1, 0, 0, 0)
+        else:
+            dt_from = pd.to_datetime(dt_from)
+        if dt_to is None:
+            dt_to = dt.now(tz.utc).replace(tzinfo=None)
+        else:
+            dt_to = pd.to_datetime(dt_to)
+
+        # files = listdir(self.quality_ts_dir)
+        files = [f for f in listdir(self.quality_ts_dir) if isfile(join(self.quality_ts_dir, f))]
+
+        # Filter files that match the stations in the 'station' list
+        # dict_data = {sta: next((f for f in files if f.split(".")[1] == sta), None) for sta in station}
+        dict_data = {sta: [f for f in files if f.split(".")[1] == sta] for sta in station}
+        # Separate used and unused data
+        unuse_dict = {sta: files for sta, files in dict_data.items() if not files}
+        filt_dict = {sta: files for sta, files in dict_data.items() if files}
+        # filt_dict = {key: value for key, value in dict_data.items() if value is not None}
+        # unuse_dict = {key: value for key, value in dict_data.items() if value is None}
+
+        station_data = {sta: {'Z': None, 'N': None, 'E': None} for sta in station}
+
+        rows, cols = set_plot_nrows_ncols(len(filt_dict))
+        if rows > 1:
+            fig, ax = plt.subplots(rows, cols, figsize=(6 * cols, 2 * rows), sharex='all')
+        else:
+            fig, ax = plt.subplots(figsize=(8, 5))
+        plt.rcParams.update({'font.size': 7})
+        y_ticks = [-40, -20, 0, 20, 40, 60, 80, 100]
+        y_tick_labels = ['blank', 'gap', '0', '20', '40', '60', '80', '100']
+        if unuse_dict:
+            for sta in unuse_dict.keys():
+                print(f"Station {sta} data not found on {self.quality_ts_dir}")
+        if filt_dict:
+            min_xthick = dt(3000, 1, 1, 0, 0, 0)
+            max_xthick = dt(1970, 1, 1, 0, 0, 0)
+            y_color = {'N': '#8EBA42', 'E': '#988ED5', 'Z': '#E24A33'}
+            i = j = 0
+            for sta, files in filt_dict.items():
+                if i >= rows:
+                    # plt.tick_params(axis='both', which='both', labelsize=5)
+                    j += 1
+                    i = 0
+                channel = ""
+                for file in files:
+                    parts = file.split(".")
+                    if len(parts) < 4:
+                        continue  # Skip files that do not have the expected format
+
+                    channel = parts[3]
+
+                    # Read the file into a dataframe
+                    data = pd.read_csv(join(self.quality_ts_dir, file), parse_dates=['Timestamp'], sep="\t")
+                    df = data.set_index('Timestamp')
+                    df = df[(df.index >= dt_from) & (df.index <= dt_to)]
+
+                    # Store the dataframe in the corresponding channel variable
+                    if channel[2:] == 'Z':
+                        station_data[sta]['Z'] = df
+                    elif channel[2:] == 'N':
+                        station_data[sta]['N'] = df
+                    elif channel[2:] == 'E':
+                        station_data[sta]['E'] = df
+
+                for comp in "ZNE":
+                    try:
+                        if station_data[sta][comp].index[-1] > max_xthick:
+                            max_xthick = station_data[sta][comp].index[-1]
+                        if station_data[sta][comp].index[0] < min_xthick:
+                            min_xthick = station_data[sta][comp].index[0]
+                    except:
+                        pass
+
+                if cols > 1:
+                    for c in range(cols):
+                        plt.xticks(rotation=30)
+                        if cols > 1:
+                            ax[-1, c].set_xlabel('Time', fontsize=6)
+                            ax[-1, c].tick_params(axis='both', labelsize=5)
+                            ax[-1, c].set_ylabel(f'PPSD Coverage (%)', fontsize=6)
+                            ax[-1, c].set_ylim(-50, 110)
+                            ax[-1, c].set_yticks(y_ticks)
+                            ax[-1, c].set_yticklabels(y_tick_labels)
+                        else:
+                            if rows > 1:
+                                ax[-1].set_xlabel('Time', fontsize=6)
+                                ax[-1].tick_params(axis='both', labelsize=5)
+                                ax[-1].set_ylabel(f'PPSD Coverage (%)', fontsize=6)
+                                ax[-1].set_ylim(-50, 110)
+                                ax[-1].set_yticks(y_ticks)
+                                ax[-1].set_yticklabels(y_tick_labels)
+                            else:
+                                ax.set_xlabel('Time', fontsize=6)
+                                ax.tick_params(axis='both', labelsize=5)
+                                ax.set_ylabel(f'PPSD Coverage (%)', fontsize=6)
+                                ax.set_ylim(-50, 110)
+                                ax.set_yticks(y_ticks)
+                                ax.set_yticklabels(y_tick_labels)
+                    for comp in "ZNE":
+                        station_data[sta][comp]['Quality(perc)'].plot(ax=ax[i, j], color=y_color[comp],
+                                                                      label=f"{sta}-{channel[:2]}{comp}")
+                    ax[i, j].set_ylabel(f'PPSD Coverage (%)', fontsize=6)
+                    ax[i, j].set_ylim(-50, 110)
+                    ax[i, j].set_yticks(y_ticks)
+                    ax[i, j].set_yticklabels(y_tick_labels)
+                    ax[i, j].tick_params(axis='both', labelsize=5)
+                    ax[i, j].legend(loc="upper right")
+                else:
+                    if rows > 1:
+                        for comp in "ZNE":
+                            station_data[sta][comp]['Quality(perc)'].plot(ax=ax[i], color=y_color[comp],
+                                                                          label=f"{sta}-{channel[:2]}{comp}")
+                        ax[i].set_ylabel(f'PPSD Coverage (%)', fontsize=6)
+                        ax[i].set_ylim(-50, 110)
+                        ax[i].set_yticks(y_ticks)
+                        ax[i].set_yticklabels(y_tick_labels)
+                        ax[i].tick_params(axis='both', labelsize=5)
+                        ax[i].legend(loc="upper right")
+                    else:
+                        for comp in "ZNE":
+                            station_data[sta][comp]['Quality(perc)'].plot(ax=ax, color=y_color[comp],
+                                                                          label=f"{sta}-{channel[:2]}{comp}")
+                        ax.set_ylabel(f'PPSD Coverage (%)', fontsize=6)
+                        ax.set_ylim(-50, 110)
+                        ax.set_yticks(y_ticks)
+                        ax.set_yticklabels(y_tick_labels)
+                        ax.tick_params(axis='both', labelsize=5)
+                        ax.legend(loc="upper right")
+                i += 1
+                fig.suptitle('PPSD Coverage Time Series', fontsize=10)
+            plt.tight_layout(rect=[0, 0.02, 1, 0.965])
+            plt.ion()
+            plt.show(block=False)
+        else:
+            print(f"Stations data not found on {self.quality_ts_dir}")
         plt.ioff()
 
     def check_existing_configuration(self):
@@ -791,6 +971,14 @@ class QSeisComP:
                 original_content = response.text
                 modified_content = original_content.replace('version="0.12"', f'version="{self.sc_schema}"')
                 modified_content = modified_content.replace('gfz-potsdam.de/ns/seiscomp3-schema/0.12"',
+                                                            f'gfz-potsdam.de/ns/seiscomp3-schema/{self.sc_schema}"')
+
+                modified_content = original_content.replace('version="0.13"', f'version="{self.sc_schema}"')
+                modified_content = modified_content.replace('gfz-potsdam.de/ns/seiscomp3-schema/0.13"',
+                                                            f'gfz-potsdam.de/ns/seiscomp3-schema/{self.sc_schema}"')
+
+                modified_content = original_content.replace('version="0.14"', f'version="{self.sc_schema}"')
+                modified_content = modified_content.replace('gfz-potsdam.de/ns/seiscomp3-schema/0.14"',
                                                             f'gfz-potsdam.de/ns/seiscomp3-schema/{self.sc_schema}"')
 
                 with open(local_inv, "w") as output_inv:
@@ -1193,6 +1381,160 @@ class QSeisComP:
 
         return sts_list
 
+    def archive_PPSD(self, station, dt_from=None, dt_to=None, low_freq=0.05, high_freq=5):
+        self.get_existing_stations()
+        # if station is None:
+        stations_df = self.df_local_sts
+        if isinstance(station, string_types):
+            station = [station]
+        if isinstance(station, list):
+            stations_df = self.df_local_sts[self.df_local_sts['Station_code'].isin(station)]
+
+        if dt_from is None:
+            dt_from = dt.now(tz.utc).replace(tzinfo=None) - td(hours=6)
+        else:
+            dt_from = pd.to_datetime(dt_from)
+        if dt_to is None:
+            dt_to = dt.now(tz.utc).replace(tzinfo=None) - td(minutes=5)
+        else:
+            dt_to = pd.to_datetime(dt_to)
+
+        for i, r in stations_df.iterrows():
+
+            net = r['Network_code']
+            sta = r['Station_code']
+            ch = r['Channel'][0:2]
+            inv_file = f'{net}.{sta}.xml'
+            try:
+                inv = read_inventory(os.path.join(self.inv_dir, inv_file))
+                # inv = read_inventory(os.path.join("BNDI.xml"))  # test
+            except Exception:
+                print('Cannot find responses metadata(s) for station {0:s}:{1:s}:{2:s}.'.format(net, sta, ch))
+                continue
+
+            for comp in "ZNE":
+                datadir = os.path.join(str(dt_from.year), net, sta, f'{ch}{comp}.D')
+                try:
+                    names = [waveform for waveform in os.listdir(join(self.arc_dir, datadir))
+                             if os.path.isfile(join(self.arc_dir, datadir, waveform))
+                             and f'{dt_from.year}.{UTCDateTime(dt_from).julday:03d}'
+                             in waveform or os.path.isfile(join(self.arc_dir, datadir, waveform))
+                             and f'{dt_to.year}.{UTCDateTime(dt_to).julday:03d}' in waveform]
+                    # trace = read("IA.BNDI..BHZ.D.2019.269")  # test
+                    trace = read(join(self.arc_dir, datadir, names[0]))
+                    trace30 = trace.copy()
+                    trace.trim(starttime=UTCDateTime(dt_from), endtime=UTCDateTime(dt_to))
+                    trace30.trim(starttime=UTCDateTime(dt_to)-2400, endtime=UTCDateTime(dt_to))
+                    # st = st.select(channel="SH*")
+                    # st = st.merge()
+                    # st.detrend()
+                    # st.filter('bandpass', freqmin=0.2, freqmax=25)
+                    # if len(trace30) == 0:  # if there is no data at specified time range, marked as blank data (-40)
+                    if len(trace) == 0:  # if there is no data at specified time range, marked as blank data (-40)
+                        ppsd_perc = -40
+                        print('There is no data for station {:s}.{:s}.{:s}{:s} at specified time range {:s}-{:s}'.
+                              format(net, sta, ch, comp, dt_from.strftime('%Y-%m-%d %H:%M:%S'), 
+                              dt_to.strftime('%Y-%m-%d %H:%M:%S')))
+                    elif len(trace) > 1:  # if there is gap, take the longer trace
+                        L_duration = 0
+                        L_trace = Trace()
+                        for trc in trace:
+                            duration = trc.stats.endtime - trc.stats.starttime
+                            if duration > L_duration:
+                                L_duration = duration
+                                L_trace = trc
+                        if L_duration < 7200:  # if longest trace duration less than 2 hours, marked as gap data (-20)
+                            ppsd_perc = -20
+                            print('The data is gap, there is not enough data for station {:s}.{:s}.{:s}{:s} '
+                                  'at specified time range {:s}-{:s}'.format(net, sta, ch, comp, dt_from.
+                                  strftime('%Y-%m-%d %H:%M:%S'), dt_to.strftime('%Y-%m-%d %H:%M:%S')))
+                        else:
+                            print('The data is gap, using longest data for station {:s}.{:s}.{:s}{:s} at {:s}-{:s}'.
+                                  format(net, sta, ch, comp, L_trace.stats.starttime, L_trace.stats.endtime))
+                            ppsd_perc = self.calc_PPSDcoverage(L_trace, inv, self.ppsd_plot_dir, low_freq=low_freq,
+                                                               high_freq=high_freq)
+                    else:
+                        ppsd_perc = self.calc_PPSDcoverage(trace[0], inv, self.ppsd_plot_dir, low_freq=low_freq,
+                                                           high_freq=high_freq)
+
+                except Exception as e:
+                    print('Error {} for station {:s}.{:s}.{:s}{:s}'.format(e, net, sta, ch, comp))
+                    ppsd_perc = -40
+                
+                sts_ts_quality = join(self.quality_ts_dir, f'{r["Network_code"]}.{r["Station_code"]}.'
+                                                       f'{r["Location_code"]}.{ch}{comp}')
+
+                quality_data = f'{self.current_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\t{ppsd_perc}'
+
+                if exists(sts_ts_quality):
+                    with open(sts_ts_quality, 'a') as f:
+                        f.write(f'{quality_data}\n')
+                else:
+                    with open(sts_ts_quality, 'w') as f:
+                        f.write(f'Timestamp\tQuality(perc)\n{quality_data}\n')
+                    
+                    
+                    continue
+        print(f'Data quality check is written to: {self.quality_ts_dir}')
+
+    @staticmethod
+    def calc_PPSDcoverage(trace, inventory, plot_dir, low_freq=0.05, high_freq=5, save_img=True):
+        """
+        Calculate the percentage of data that are between the noise model (Peterson, 1993)
+        low_freq, high_freq: Lower and upper frequencies to calculate (Hz)
+        """
+
+        q_cmap = LinearSegmentedColormap.from_list('q_colormap', ['white', 'blue', 'aqua', 'lime', 'yellow', 'red'])
+
+        # calculate the PPSD
+        ppsd = PPSD(trace.stats, metadata=inventory, ppsd_length=500, overlap=0.85)
+        # ppsd = PPSD(trace.stats, metadata=inventory)
+        ppsd.add(trace)
+
+        if save_img:
+            # ppsd.plot(cmap=pqlx)
+            ppsd.plot(cmap=q_cmap, show=False, period_lim=(0.05, 500), show_coverage=True, show_histogram=True,
+                      filename=join(plot_dir, f"{trace.stats.network}.{trace.stats.station}.{trace.stats.channel}.jpg"))
+
+        precision = 5
+        np.set_printoptions(precision=precision, suppress=True, threshold=sys.maxsize)
+
+        # retrieve periods and amplitudes calculated by PPSD then convert to freqs
+        periods = ppsd.period_bin_centers
+        all_psd_values = np.array(ppsd.psd_values)  # shape (n_segments, n_periods)
+        freqs = 1.0 / periods
+
+        # Filter frequencies and PSD values to the desired range
+        valid_idx = np.where((freqs >= low_freq) & (freqs <= high_freq))[0]
+        filtered_freqs = freqs[valid_idx]
+        filtered_psd_values = all_psd_values[:, valid_idx]
+
+        # retrieve periods, low and high amplitudes based on noise model (Peterson, 1993) then convert to freqs
+        (mperiods, mlampls), mhampls = get_nlnm(), get_nhnm()[1]
+        mfreqs = 1.0 / mperiods
+
+        # count how many freq points are between Peterson Noise Model
+        inside_count = 0
+        total_count = 0
+        for i, freq in enumerate(filtered_freqs):
+            midx = (np.abs(mfreqs - freq)).argmin()
+            for psd_value in filtered_psd_values[:, i]:
+                # plt.figure(figsize=(10, 6))
+                # plt.hist(filtered_psd_values[:, i], bins=10, edgecolor='black', alpha=0.75)
+                # plt.grid(True)
+                # plt.show()
+                # plt.close()
+                total_count += 1
+                if mlampls[midx] <= psd_value <= mhampls[midx]:
+                    inside_count += 1
+
+        if inside_count == 0:
+            percentage = 0
+        else:
+            percentage = inside_count * 100 / total_count
+
+        return percentage
+
     @staticmethod
     def update_config():
         """
@@ -1226,7 +1568,7 @@ if __name__ == "__main__":
 # q_seiscomp = QSeisComP()
 # PGRIX = ["AAI", "AAII", "TAMI", "KRAI", "MSAI", "NLAI", "SRMI", "NBMI", "SEMI", "BNDI", "BSMI", "SSMI",
 #          "TLE2", "KTMI", "KKMI", "SAUI", "ARMI", "TMTMM", "WSTMM", "NSBMM", "TTSMI", "PBMMI", "MLMMI"]
-# q_seiscomp.plot_ts_latency("KRAI")
+# q_seiscomp.plot_ts_quality("AAI", "2024-6-29 00:00:00", "2024-6-30 00:01:00")
 # q_seiscomp.plot_ts_latency(PGRIX)
 # q_seiscomp.plot_ts_latency(["WSTMM", "DGF", "KRAI", "ABC"], "2023-8-29 00:00:00", "2023-8-30 00:01:00")
 # q_seiscomp.check_existing_configuration()

@@ -3,12 +3,12 @@
 #  backup seiscomp events ke HDD by eQ
 # ====================================
 
-tahun="2023"
+tahun="2024"
 
 backup_dir="/media/sysop/LaCie/PGR_Backup/event"
 
-awal="$tahun-01-01 00:00:00"
-akhir="$tahun-12-31 23:59:59"
+awal="$tahun-06-20 00:00:00"
+akhir="$tahun-07-10 23:59:59"
 
 if [ ! -d "$backup_dir" ]; then
     mkdir -p "$backup_dir"

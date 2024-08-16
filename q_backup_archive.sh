@@ -3,9 +3,10 @@
 #  backup seiscomp archive ke HDD by eQ
 # =====================================
 
-tahun="2023"
+tahun="2024"
 
 sc_archive="/home/sysop/seiscomp/var/lib/archive"
+#backup_dir="/media/sysop/LaCie/PGR_Backup/archive/tes/tes"
 backup_dir="/media/sysop/LaCie/PGR_Backup/archive"
 
 if [ ! -d "$backup_dir" ]; then

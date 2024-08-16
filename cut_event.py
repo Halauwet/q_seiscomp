@@ -154,6 +154,9 @@ for net in recording_net:
                 print(f'\tExpected file location: {datadirs[0]}\n'
                       f'\t\t\t\t\t\t\t\t\t\tand\t\t{datadirs[1]}')
             continue
+        if sta == 'BNDI':
+            print(len(files))
+            print(files)
         if len(files) == 3:
             try:
                 st = add_SC3arc(t0, t1, files[0], files[1], files[2])
