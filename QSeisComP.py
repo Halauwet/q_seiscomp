@@ -848,6 +848,8 @@ class QSeisComP:
             self.run_slinktool()
         error, list_recom = self.check_station()
         print(error)
+        list_recom = [x for x in list_recom if x != ""]
+        print(list_recom)
         if list_recom:
             add_sts = input("Fix current configuration? ([Y]/N)") or "Y"
             if add_sts == 'Y' or add_sts == 'y':
@@ -969,17 +971,20 @@ class QSeisComP:
         if response.status_code == 200:
             if self.sc_version <= 4:
                 original_content = response.text
-                modified_content = original_content.replace('version="0.12"', f'version="{self.sc_schema}"')
-                modified_content = modified_content.replace('gfz-potsdam.de/ns/seiscomp3-schema/0.12"',
-                                                            f'gfz-potsdam.de/ns/seiscomp3-schema/{self.sc_schema}"')
+                if 'version="0.12"' in original_content:
+                    modified_content = original_content.replace('version="0.12"', f'version="{self.sc_schema}"')
+                    modified_content = modified_content.replace('gfz-potsdam.de/ns/seiscomp3-schema/0.12"',
+                                                                f'gfz-potsdam.de/ns/seiscomp3-schema/{self.sc_schema}"')
 
-                modified_content = original_content.replace('version="0.13"', f'version="{self.sc_schema}"')
-                modified_content = modified_content.replace('gfz-potsdam.de/ns/seiscomp3-schema/0.13"',
-                                                            f'gfz-potsdam.de/ns/seiscomp3-schema/{self.sc_schema}"')
-
-                modified_content = original_content.replace('version="0.14"', f'version="{self.sc_schema}"')
-                modified_content = modified_content.replace('gfz-potsdam.de/ns/seiscomp3-schema/0.14"',
-                                                            f'gfz-potsdam.de/ns/seiscomp3-schema/{self.sc_schema}"')
+                elif 'version="0.13"' in original_content:
+                    modified_content = original_content.replace('version="0.13"', f'version="{self.sc_schema}"')
+                    modified_content = modified_content.replace('gfz-potsdam.de/ns/seiscomp3-schema/0.13"',
+                                                                f'gfz-potsdam.de/ns/seiscomp3-schema/{self.sc_schema}"')
+                                                                
+                elif 'version="0.14"' in original_content:
+                    modified_content = original_content.replace('version="0.14"', f'version="{self.sc_schema}"')
+                    modified_content = modified_content.replace('gfz-potsdam.de/ns/seiscomp3-schema/0.14"',
+                                                                f'gfz-potsdam.de/ns/seiscomp3-schema/{self.sc_schema}"')
 
                 with open(local_inv, "w") as output_inv:
                     output_inv.write(modified_content)
@@ -1060,7 +1065,15 @@ class QSeisComP:
             print("Permission denied. Make sure you have the necessary permissions.")
         except Exception as e:
             print(f"An error occurred: {e}")
-
+    
+    def update_all_inventory(self):
+        self.get_existing_stations()
+        for i,r in self.df_local_sts.iterrows():
+            net = r["Network_code"]
+            sta = r["Station_code"]
+            self.get_inventory(net, sta)
+            self.update_inventory(net, sta)
+	
     def write_key(self, network, station, location, channel, use_amplitude, sta_SL_profile=False):
         """
         Method to write key to scproc
