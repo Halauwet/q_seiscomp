@@ -173,9 +173,9 @@ def alpha_shape(points, alpha, only_outer=True):
         pc = points[ic]
         # Computing radius of triangle circumcircle
         # www.mathalino.com/reviewer/derivation-of-formulas/derivation-of-formula-for-radius-of-circumcircle
-        a = np.sqrt((pa[0] - pb[0]) ** 2 + (pa[1] - pb[1]) ** 2)
-        b = np.sqrt((pb[0] - pc[0]) ** 2 + (pb[1] - pc[1]) ** 2)
-        c = np.sqrt((pc[0] - pa[0]) ** 2 + (pc[1] - pa[1]) ** 2)
+        a = np.sqrt((float(pa[0]) - float(pb[0])) ** 2 + (float(pa[1]) - float(pb[1])) ** 2)
+        b = np.sqrt((float(pb[0]) - float(pc[0])) ** 2 + (float(pb[1]) - float(pc[1])) ** 2)
+        c = np.sqrt((float(pc[0]) - float(pa[0])) ** 2 + (float(pc[1]) - float(pa[1])) ** 2)
         s = (a + b + c) / 2.0
         area = np.sqrt(s * (s - a) * (s - b) * (s - c))
         circum_r = a * b * c / (4.0 * area)
@@ -231,7 +231,9 @@ class QSeisComP:
             register ts_latency to crontab:
                 crontab -e
                 */5 * * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_latency.py > q_seiscompL.log 2>&1
-                0 0,4,8,12,16,20 * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_quality.py > q_seiscompQ.log 2>&1"
+                0 3,7,11,15,19,23 * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_quality.py > q_seiscompQ.log 2>&1"
+                0 3,7,11,15,19,23 * * * /bin/bash -c "source ~/miniconda3/bin/activate && conda activate q_seiscomp && python ~/seiscomp/lib/python/q_seiscomp/ts_quality.py > q_seiscompQ.log 2>&1"
+                0 8 * * * /bin/bash -c "source ~/miniconda3/bin/activate && conda activate q_seiscomp && python ~/seiscomp/lib/python/q_seiscomp/ts_quality.py > q_seiscompQ.log 2>&1"
 
 
             run 3 main method after load the class instance:
@@ -263,6 +265,7 @@ class QSeisComP:
 
         self.key_dir = join(self.etc_dir, 'key')
         self.inv_dir = join(self.etc_dir, 'inventory')
+        self.invfsdn_dir = join(self.inv_dir, 'fsdn')
         self.arc_dir = join(environ['HOME'], "seiscomp", 'var', 'lib', 'archive')
         self.sl_profile_dir = join(self.key_dir, 'seedlink')
         self.tmp_dir = join(self.lib_dir, "tmp")
@@ -284,6 +287,8 @@ class QSeisComP:
             mkdir(self.quality_ts_dir)
         if not exists(self.ppsd_plot_dir):
             mkdir(self.ppsd_plot_dir)
+        if not exists(self.invfsdn_dir):
+            mkdir(self.invfsdn_dir)
         if not exists(self.tmp_dir):
             mkdir(self.tmp_dir)
 
@@ -1068,12 +1073,92 @@ class QSeisComP:
     
     def update_all_inventory(self):
         self.get_existing_stations()
-        for i,r in self.df_local_sts.iterrows():
+        for i, r in self.df_local_sts.iterrows():
             net = r["Network_code"]
             sta = r["Station_code"]
             self.get_inventory(net, sta)
             self.update_inventory(net, sta)
-	
+
+    def get_fsdn_inventory(self, network, station):
+        """
+        Method to get updated metadata
+
+        :param network:
+        :param station:
+        """
+        inv_url = (f"https://geof.bmkg.go.id/fdsnws/station/1/query?network={network}&"
+                   f"station={station}&level=response&nodata=404")
+
+        update_inv_dir = join(self.invfsdn_dir, "update")
+
+        if not exists(update_inv_dir):
+            mkdir(update_inv_dir)
+
+        local_inv = join(update_inv_dir, f"{network}.{station}.xml")
+
+        response = requests.get(inv_url)
+
+        if response.status_code == 200:
+            with open(local_inv, 'wb') as file:
+                file.write(response.content)
+            print(f"\nInventory is downloaded to {local_inv}")
+        else:
+            print(f"Failed to download the {network}.{station} inventory. Status code: {response.status_code}")
+
+    def update_fsdn_inventory(self, network, station):
+        """
+        Method to update scproc inventory (preserve old inventory)
+
+        :param network:
+        :param station:
+        """
+        old_inv_dir = join(self.invfsdn_dir, "old")
+
+        if not exists(old_inv_dir):
+            mkdir(old_inv_dir)
+
+        old_inv = join(self.invfsdn_dir, f"{network}.{station}.xml")
+
+        if exists(old_inv):
+            if exists(join(old_inv_dir, f"{network}.{station}.xml")):
+                for i in range(99):
+                    renamed_inv = f'{network}.{station}_{i + 1:02}.xml'
+                    if not glob(join(old_inv_dir, renamed_inv)):
+                        try:
+                            shutil.move(old_inv, join(old_inv_dir, renamed_inv))
+                        except (IOError, OSError, shutil.Error):
+                            print(f'Not fully moving inventory "{network}.{station}"')
+                        break
+            else:
+                try:
+                    shutil.move(old_inv, old_inv_dir)
+                except FileNotFoundError:
+                    print("Source inventory not found.")
+                except PermissionError:
+                    print("Permission denied. Make sure you have the necessary permissions.")
+                except Exception as e:
+                    print(f"An error occurred: {e}")
+
+        new_inv = join(self.invfsdn_dir, "update", f"{network}.{station}.xml")
+
+        try:
+            shutil.move(new_inv, join(self.invfsdn_dir))
+            print(f"Local inventory updated")
+        except FileNotFoundError:
+            print("Source inventory not found.")
+        except PermissionError:
+            print("Permission denied. Make sure you have the necessary permissions.")
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
+    def update_all_fsdn_inventory(self):
+        self.get_existing_stations()
+        for i, r in self.df_local_sts.iterrows():
+            net = r["Network_code"]
+            sta = r["Station_code"]
+            self.get_fsdn_inventory(net, sta)
+            self.update_fsdn_inventory(net, sta)
+
     def write_key(self, network, station, location, channel, use_amplitude, sta_SL_profile=False):
         """
         Method to write key to scproc
@@ -1123,6 +1208,54 @@ class QSeisComP:
             f.write("slarchive:default_30d\n")
             f.write("access\n")
         print(f'Key "station_{network}_{station}" is written\n')
+
+    def add_all_seedlink_sts(self):
+        """
+        Method to add all seedlink station to scproc and automatically configured it
+
+        :usages:  q_seiscomp.check_existing_configuration()
+
+        """
+        pd.options.mode.chained_assignment = None
+
+        # local_coord = self.read_local_coordinate()
+        server_coord = self.read_server_coordinate()
+
+        # server_coord_filt = server_coord[~server_coord['Station_code'].isin(local_coord['Station_code'])]
+        server_coord["Location_code"] = server_coord["Location_code"].copy().fillna('')
+
+        # Check if the server remaining sts is inside the polygon
+        recomm_sts = []
+        recomm_sts_loc = np.empty([0, 2])
+        for i, r in server_coord.iterrows():
+            if r['Station_code'] not in ["MK02", "MK03", "MK04", "MK05", "MK06", "MK07", "MK08", "MK09", "MK31",
+                                         "SONA1", "SONA2", "SONA3", "SONA4", "SONB2", "SONB3", "SONB4", "SONB5",
+                                         "AS02", "AS03", "AS04", "AS05", "AS06", "AS07", "AS08", "AS09", "AS10", "AS11",
+                                         "AS12", "AS13", "AS14", "AS15", "AS16", "AS17", "AS18", "AS19", "AS31",
+                                         "WC2", "WC3", "WC4", "WB2", "WB3", "WB4", "WB5", "WB6", "WB7", "WB8", "WB9"
+                                         "WR2", "WR3", "WR4", "WR5", "WR6", "WR7", "WR8", "WR9", "WR10"]:
+                recomm_sts.append(f"{r['Network_code']}.{r['Station_code']}.{r['Location_code']}.{r['Init_Channel']}")
+                recomm_sts_loc = np.append(recomm_sts_loc,
+                                           [np.array([float(r["Station_lon"]), float(r["Station_lat"])])], axis=0)
+
+        print(f"There are {len(recomm_sts)} stations that can be added:")
+        division = int(len(recomm_sts)/10) if len(recomm_sts) > 10 else 1
+        for i, item in enumerate(recomm_sts):
+            print(item.ljust(15), end='\n' if (i + 1) % division == 0 else ' ')
+
+        print("\nAdd all stations? [Y/n]")
+        choice = input("") or 'Y'
+
+        update = False
+        if choice == 'Y' or choice == 'y':
+            self.add_station(recomm_sts, checked=True)
+            update = True
+        elif choice == 'N' or choice == 'n' :
+            print("Canceling...")
+        else:
+            print("Invalid choice. Canceling...")
+        if update:
+            self.update_config()
 
     def check_unexists_sts(self, alpha=6):
         """
@@ -1362,7 +1495,7 @@ class QSeisComP:
 
         self.df_seedlink_responses = self.df_seedlink_responses.reset_index(drop=True)
         self.df_seedlink_responses['Init_Channel'] = self.df_seedlink_responses['Channel'].str[:2]
-
+        self.df_seedlink_responses['Location_code'] = self.df_seedlink_responses['Location_code'].astype(str)
         update = False
         for i, r in self.df_seedlink_responses.iterrows():
             if r['Station_code'] not in sts_list['Station_code'].values:
@@ -1390,21 +1523,30 @@ class QSeisComP:
         if update:
             sts_list = sts_list.drop_duplicates(subset=['Network_code', 'Station_code'])
             sts_list = sts_list.reset_index(drop=True)
+            sts_list['Location_code'] = sts_list['Location_code'].astype(str)
             sts_list.to_csv(join(self.tmp_dir, 'server_coord.csv'), index=False)
 
         return sts_list
 
-    def archive_PPSD(self, station, dt_from=None, dt_to=None, low_freq=0.05, high_freq=5):
-        self.get_existing_stations()
-        # if station is None:
-        stations_df = self.df_local_sts
-        if isinstance(station, string_types):
-            station = [station]
-        if isinstance(station, list):
-            stations_df = self.df_local_sts[self.df_local_sts['Station_code'].isin(station)]
+    def archive_PPSD(self, station='', qcmt_station=False, dt_from=None, dt_to=None, low_freq=0.05, high_freq=5.0,
+                     duration=24, fsdn=False, save_quality=True):
+        if qcmt_station:
+            stations_df = pd.read_csv(qcmt_station, skipinitialspace=True)
+            stations_df['loc'] = stations_df['loc'].copy().fillna('')
+        else:
+            self.get_existing_stations()
+            stations_df = self.df_local_sts
+
+        if not station:
+            pass
+        else:
+            if isinstance(station, string_types):
+                station = [station]
+            if isinstance(station, list):
+                stations_df = self.df_local_sts[self.df_local_sts['Station_code'].isin(station)]
 
         if dt_from is None:
-            dt_from = dt.now(tz.utc).replace(tzinfo=None) - td(hours=6)
+            dt_from = dt.now(tz.utc).replace(tzinfo=None) - td(hours=duration)
         else:
             dt_from = pd.to_datetime(dt_from)
         if dt_to is None:
@@ -1414,14 +1556,22 @@ class QSeisComP:
 
         for i, r in stations_df.iterrows():
 
-            net = r['Network_code']
-            sta = r['Station_code']
-            ch = r['Channel'][0:2]
+            if qcmt_station:
+                net = r['net']
+                sta = r['sta']
+                ch = r['ch']
+            else:
+                net = r['Network_code']
+                sta = r['Station_code']
+                ch = r['Channel'][0:2]
             inv_file = f'{net}.{sta}.xml'
             try:
-                inv = read_inventory(os.path.join(self.inv_dir, inv_file))
+                if fsdn:
+                    inv = read_inventory(os.path.join(self.invfsdn_dir, inv_file))
+                else:
+                    inv = read_inventory(os.path.join(self.inv_dir, inv_file))
                 # inv = read_inventory(os.path.join("BNDI.xml"))  # test
-            except Exception:
+            except (ValueError, FileNotFoundError):
                 print('Cannot find responses metadata(s) for station {0:s}:{1:s}:{2:s}.'.format(net, sta, ch))
                 continue
 
@@ -1435,9 +1585,9 @@ class QSeisComP:
                              and f'{dt_to.year}.{UTCDateTime(dt_to).julday:03d}' in waveform]
                     # trace = read("IA.BNDI..BHZ.D.2019.269")  # test
                     trace = read(join(self.arc_dir, datadir, names[0]))
-                    trace30 = trace.copy()
+                    # trace30 = trace.copy()
                     trace.trim(starttime=UTCDateTime(dt_from), endtime=UTCDateTime(dt_to))
-                    trace30.trim(starttime=UTCDateTime(dt_to)-2400, endtime=UTCDateTime(dt_to))
+                    # trace30.trim(starttime=UTCDateTime(dt_to)-2400, endtime=UTCDateTime(dt_to))
                     # st = st.select(channel="SH*")
                     # st = st.merge()
                     # st.detrend()
@@ -1446,7 +1596,7 @@ class QSeisComP:
                     if len(trace) == 0:  # if there is no data at specified time range, marked as blank data (-40)
                         ppsd_perc = -40
                         print('There is no data for station {:s}.{:s}.{:s}{:s} at specified time range {:s}-{:s}'.
-                              format(net, sta, ch, comp, dt_from.strftime('%Y-%m-%d %H:%M:%S'), 
+                              format(net, sta, ch, comp, dt_from.strftime('%Y-%m-%d %H:%M:%S'),
                               dt_to.strftime('%Y-%m-%d %H:%M:%S')))
                     elif len(trace) > 1:  # if there is gap, take the longer trace
                         L_duration = 0
@@ -1473,25 +1623,45 @@ class QSeisComP:
                 except Exception as e:
                     print('Error {} for station {:s}.{:s}.{:s}{:s}'.format(e, net, sta, ch, comp))
                     ppsd_perc = -40
-                
-                sts_ts_quality = join(self.quality_ts_dir, f'{r["Network_code"]}.{r["Station_code"]}.'
-                                                       f'{r["Location_code"]}.{ch}{comp}')
 
-                quality_data = f'{self.current_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\t{ppsd_perc}'
+                if qcmt_station:
+                    if ppsd_perc > 0 :
+                        stations_df.at[i, f'w{comp}'] = ppsd_perc / 100
+                    elif ppsd_perc == -40 :
+                        # flag for blank data and error data
+                        stations_df.at[i, f'w{comp}'] = 0.0
+                    else:
+                        # flag for gap data
+                        stations_df.at[i, f'w{comp}'] = 0.3
 
-                if exists(sts_ts_quality):
-                    with open(sts_ts_quality, 'a') as f:
-                        f.write(f'{quality_data}\n')
-                else:
-                    with open(sts_ts_quality, 'w') as f:
-                        f.write(f'Timestamp\tQuality(perc)\n{quality_data}\n')
-                    
-                    
-                    continue
-        print(f'Data quality check is written to: {self.quality_ts_dir}')
+                if save_quality:
+                    if qcmt_station:
+                        sts_ts_quality = join(self.quality_ts_dir, f'{r["net"]}.{r["sta"]}.'
+                                                                   f'{r["loc"]}.{ch}{comp}')
+                    else:
+                        sts_ts_quality = join(self.quality_ts_dir, f'{r["Network_code"]}.{r["Station_code"]}.'
+                                                                   f'{r["Location_code"]}.{ch}{comp}')
+
+                    quality_data = f'{self.current_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}\t{ppsd_perc}'
+
+                    if exists(sts_ts_quality):
+                        with open(sts_ts_quality, 'a') as f:
+                            f.write(f'{quality_data}\n')
+                    else:
+                        with open(sts_ts_quality, 'w') as f:
+                            f.write(f'Timestamp\tQuality(perc)\n{quality_data}\n')
+                        continue
+
+        if save_quality:
+            print(f'Data quality check is written to: {self.quality_ts_dir}')
+
+        if qcmt_station:
+            stations_df['loc'] = stations_df['loc'].astype(str)
+            stations_df[['wZ', 'wN', 'wE']] = stations_df[['wZ', 'wN', 'wE']].round(1)
+            stations_df.to_csv(qcmt_station, index=False)
 
     @staticmethod
-    def calc_PPSDcoverage(trace, inventory, plot_dir, low_freq=0.05, high_freq=5, save_img=True):
+    def calc_PPSDcoverage(trace, inventory, plot_dir, low_freq=0.05, high_freq=5.0, save_img=False):
         """
         Calculate the percentage of data that are between the noise model (Peterson, 1993)
         low_freq, high_freq: Lower and upper frequencies to calculate (Hz)
@@ -1500,7 +1670,7 @@ class QSeisComP:
         q_cmap = LinearSegmentedColormap.from_list('q_colormap', ['white', 'blue', 'aqua', 'lime', 'yellow', 'red'])
 
         # calculate the PPSD
-        ppsd = PPSD(trace.stats, metadata=inventory, ppsd_length=500, overlap=0.85)
+        ppsd = PPSD(trace.stats, metadata=inventory, ppsd_length=500, overlap=0.5)
         # ppsd = PPSD(trace.stats, metadata=inventory)
         ppsd.add(trace)
 
@@ -1574,7 +1744,17 @@ class QSeisComP:
 
 if __name__ == "__main__":
     q_seiscomp = QSeisComP()
-    help(q_seiscomp)
+    # help(q_seiscomp)
+    # q_seiscomp.add_station(["IA.PAASI..SH", "IA.CMJI..SH", "IA.TARAI.00.HH", "IA.LSNI..SH", "IA.ROTTI..SH",
+    #                         "IA.MISSI..SH", "IA.KARPI..SH", "IA.MTJPI..SH", "IA.SOMPI..SH"])
+    # q_seiscomp.add_all_seedlink_sts()
+    # q_seiscomp.update_all_inventory()
+    # q_seiscomp.update_all_fsdn_inventory()
+    # PGRIX = ["AAI", "AAII", "TAMI", "KRAI", "MSAI", "NLAI", "SRMI", "NBMI", "SEMI", "BNDI", "BSMI", "SSMI",
+    #          "TLE2", "KTMI", "KKMI", "SAUI", "ARMI", "TMTMM", "WSTMM", "NSBMM", "TTSMI", "PBMMI", "MLMMI"]
+    # q_seiscomp.archive_PPSD(station=PGRIX, low_freq=0.05, high_freq=5)
+    q_seiscomp.archive_PPSD(qcmt_station="~/q_repo/Q_CMT/analysis/seiscomp/data/stations.dat",
+                            low_freq=0.005, high_freq=0.2, fsdn=True, duration=20, save_quality=False)
 
 
 # TESTING

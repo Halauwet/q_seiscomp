@@ -10,7 +10,8 @@ print(
             register ts_latency to crontab:
                 crontab -e
                 */5 * * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_latency.py > q_seiscompL.log 2>&1
-                0 0,4,8,12,16,20 * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_quality.py > q_seiscompQ.log 2>&1"
+                0 3,7,11,15,19,23 * * * python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_quality.py > q_seiscompQ.log 2>&1"
+                0 3,7,11,15,19,23 * * * /bin/bash -c "source /home/sysop/anaconda3/etc/profile.d/conda.sh && conda activate RMT && python /home/sysop/seiscomp/lib/python/q_seiscomp/ts_quality.py > q_seiscompQ.log 2>&1"
 
 
             run 3 main method after load the class instance:
